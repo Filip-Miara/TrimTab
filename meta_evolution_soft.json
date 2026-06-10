@@ -72,6 +72,246 @@
         }
       ],
       "population_variance": 0.006718533579260111
+    },
+    {
+      "generation": 2,
+      "fitnesses": [
+        -3481.849606742748,
+        -3811.039453168305,
+        -4408.3578280056345,
+        -3806.9310605407327,
+        -3905.4716229996875,
+        -3677.427923623171
+      ],
+      "best_fitness": -3481.849609375,
+      "best_trajectory": [
+        {
+          "segment": 1,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": false,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": false,
+            "use_polynomial": true
+          },
+          "poly_order": 2,
+          "eval_ppl": 8349.85734252317,
+          "improvement": 0
+        },
+        {
+          "segment": 2,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": false,
+            "use_norm": true,
+            "use_gate": true,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 4308.93299359904,
+          "improvement": 4040.92434892413
+        },
+        {
+          "segment": 3,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": false,
+            "use_norm": true,
+            "use_gate": true,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3481.849606742748,
+          "improvement": 827.0833868562918
+        }
+      ],
+      "population_variance": 0.010883118957281113
+    },
+    {
+      "generation": 3,
+      "fitnesses": [
+        -4113.041108807674,
+        -3689.330319621889,
+        -4090.9729076256685,
+        -4052.8719188060836,
+        -3797.981163275836,
+        -4487.1724256648795
+      ],
+      "best_fitness": -3689.330322265625,
+      "best_trajectory": [
+        {
+          "segment": 1,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": false,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": false,
+            "use_polynomial": true
+          },
+          "poly_order": 2,
+          "eval_ppl": 7877.617401983815,
+          "improvement": 0
+        },
+        {
+          "segment": 2,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": true,
+            "use_norm": true,
+            "use_gate": false,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 4136.0930920149885,
+          "improvement": 3741.524309968827
+        },
+        {
+          "segment": 3,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": true,
+            "use_norm": true,
+            "use_gate": false,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3689.330319621889,
+          "improvement": 446.76277239309957
+        }
+      ],
+      "population_variance": 0.016798662021756172
+    },
+    {
+      "generation": 4,
+      "fitnesses": [
+        -4062.2213956377145,
+        -3531.0874507373765,
+        -3788.252718743979,
+        -3702.622166269644,
+        -3924.049205360347,
+        -4826.884376745067
+      ],
+      "best_fitness": -3531.08740234375,
+      "best_trajectory": [
+        {
+          "segment": 1,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": false,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": false,
+            "use_polynomial": true
+          },
+          "poly_order": 2,
+          "eval_ppl": 7511.87011824366,
+          "improvement": 0
+        },
+        {
+          "segment": 2,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": true,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3650.8568088463276,
+          "improvement": 3861.0133093973323
+        },
+        {
+          "segment": 3,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": true,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3531.0874507373765,
+          "improvement": 119.76935810895111
+        }
+      ],
+      "population_variance": 0.02351471781730652
+    },
+    {
+      "generation": 5,
+      "fitnesses": [
+        -3492.448799386907,
+        -3898.800330254672,
+        -3977.097921192847,
+        -3712.445617679844,
+        -3696.848211476678,
+        -3869.648300037461
+      ],
+      "best_fitness": -3492.44873046875,
+      "best_trajectory": [
+        {
+          "segment": 1,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": false,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": false,
+            "use_polynomial": true
+          },
+          "poly_order": 2,
+          "eval_ppl": 5840.35723907354,
+          "improvement": 0
+        },
+        {
+          "segment": 2,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": true,
+            "use_norm": false,
+            "use_gate": true,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 3,
+          "eval_ppl": 3927.200147048257,
+          "improvement": 1913.157092025283
+        },
+        {
+          "segment": 3,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": true,
+            "use_norm": false,
+            "use_gate": true,
+            "use_activation": true,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 3,
+          "eval_ppl": 3642.544259405472,
+          "improvement": 284.6558876427848
+        }
+      ],
+      "population_variance": 0.026920640841126442
     }
   ]
 }

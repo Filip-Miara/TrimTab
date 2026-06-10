@@ -313,14 +313,14 @@ class HybridStreamExpert(StreamExpert):
         sf = self._soft_flags
         alpha = self._get_alpha() if sf["use_activation"] > 0 else 0.0
 
-        def apply_fwd(A, B, magnitude, ve_A, ve_B, ve_lambda, anl, poly_coeffs):
-            """Compute fwd delta: x @ (magnitude * normalize(BA + VE + POLY)).T"""
+        def apply_fwd(A, B, magnitude, ve_A, ve_B, ve_lambda, anl, poly_coeffs, is_bwd=False):
+            """Compute delta: x @ delta.T for fwd, x @ delta for bwd."""
             A_act = A
             if sf["use_activation"] > 0:
                 A_act = (1 - alpha) * A + alpha * torch.tanh(A) * sf["use_activation"]
             if sf["use_autoencoder"] > 0 and anl is not None:
                 A_act = (1 - sf["use_autoencoder"]) * A_act + sf["use_autoencoder"] * anl(A_act.T).T
-            BA = B @ A_act
+            BA = B @ A
             if sf["use_vectors"] > 0 and ve_lambda is not None:
                 BA = BA + ve_B @ (ve_lambda[:, None] * ve_A) * sf["use_vectors"]
             poly_term = None
@@ -332,7 +332,9 @@ class HybridStreamExpert(StreamExpert):
             DA = self.lambda_ * self.scaling * DA
             col_norm = DA.norm(p=2, dim=1, keepdim=True)
             DA = magnitude[:, None] * (DA / (col_norm + self.eps))
-            return x @ DA.T
+            if is_bwd:
+                return x @ DA  # bwd: DA is (in, out)
+            return x @ DA.T  # fwd: DA is (out, in)
 
         delta = apply_fwd(A_fwd, B_fwd, magnitude_fwd,
                           self.ve_A_fwd, self.ve_B_fwd, self.ve_lambda_fwd,
@@ -341,7 +343,7 @@ class HybridStreamExpert(StreamExpert):
         if sf["bidirectional"] > 0:
             delta_bwd = apply_fwd(A_bwd, B_bwd, magnitude_bwd,
                                   self.ve_A_bwd, self.ve_B_bwd, self.ve_lambda_bwd,
-                                  self.ANL_bwd, self.poly_coeff_bwd)
+                                  self.ANL_bwd, self.poly_coeff_bwd, is_bwd=True)
             delta = (1 - sf["bidirectional"]) * delta + sf["bidirectional"] * (delta + delta_bwd) / 2
 
         if sf["use_norm"] > 0:
