@@ -1,0 +1,10 @@
+{
+  "n_weights": 40960,
+  "d_in": 1024,
+  "d_out": 4096,
+  "n_train": 15,
+  "n_test": 5,
+  "steps": 20,
+  "rank": 8,
+  "final_train_loss": 0.0
+}

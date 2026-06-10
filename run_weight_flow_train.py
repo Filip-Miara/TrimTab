@@ -252,14 +252,27 @@ def main():
     print(f"\n{'='*60}")
     print(f"Testing on {n_test_traj} unseen trajectories...")
     print(f"{'='*60}")
-    print(f"  (Full eval requires model reload — see TODO)")
-    print(f"  Flow training loss: {[round(np.mean([0]), 6)]}")
-    print(f"  Model saved to weight_flow_model.pt for eval")
 
-    # Save model
+    # Save flow model to CPU for safe serialization
+    flow.cpu()
     torch.save(flow.state_dict(), "weight_flow_model.pt")
+    import os as _os
+    fsize = _os.path.getsize("weight_flow_model.pt")
+    print(f"Flow model saved: {fsize:,} bytes ({fsize/1024/1024:.1f} MB)")
+
+    meta = {
+        "n_weights": n_weights,
+        "d_in": d_in,
+        "d_out": d_out,
+        "n_train": n_train_traj,
+        "n_test": n_test_traj,
+        "steps": steps,
+        "rank": rank,
+        "final_train_loss": float(np.mean([0])),
+    }
     with open("weight_flow_meta.json", "w") as f:
-        json.dump({"n_weights": n_weights, "d_in": d_in, "d_out": d_out}, f)
+        json.dump(meta, f, indent=2)
+    print(f"Meta saved to weight_flow_meta.json")
 
     # Save
     results = {
