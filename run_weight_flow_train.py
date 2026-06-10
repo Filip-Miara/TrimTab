@@ -61,7 +61,7 @@ def collect_trajectories(
     lr: float = 1e-3,
     device: str = "cuda",
     seed: int = 42,
-) -> tuple[list, int, int, int]:
+) -> tuple[list, int, int, int, int]:
     """Collect weight trajectories from fine-tuning Qwen3.5-0.8B.
 
     Returns:
@@ -99,6 +99,7 @@ def collect_trajectories(
 
     from src.adapters.stream_fusion import PlainStreamExpert
     n_weights = PlainStreamExpert.absorb_dim(t_module.in_features, t_module.out_features, rank)
+    ctx_dim = t_module.in_features + t_module.out_features  # hidden + B_grad
 
     # Load data
     print("Loading arxiv data...")
@@ -139,7 +140,6 @@ def collect_trajectories(
 
         # Compute data context (once, before training)
         with torch.no_grad():
-            # Get hidden states at the target layer
             X = None
             cache = {}
 
@@ -157,7 +157,7 @@ def collect_trajectories(
                 X = torch.randn(1, 512, t_module.in_features)
 
         # Mean pool over sequence
-        ctx = X.mean(dim=(0, 1))
+        ctx_hidden = X.mean(dim=(0, 1))  # (d_in,)
 
         # SGD trajectory
         opt = torch.optim.Adam(params, lr=lr)
@@ -171,6 +171,18 @@ def collect_trajectories(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             opt.step()
+
+            # Compute gradient context: mean gradient of lora_B per output dim
+            b_grad = None
+            for n, p in adapter.named_parameters():
+                if 'lora_B' in n and p.grad is not None:
+                    b_grad = p.grad.float().mean(dim=1)  # (d_out,)
+                    break
+
+            if b_grad is not None:
+                ctx = torch.cat([ctx_hidden, b_grad.cpu()])
+            else:
+                ctx = ctx_hidden
 
             flat = torch.cat([p.data.flatten() for p in params]).float().cpu()
             weights.append(flat)
@@ -187,7 +199,7 @@ def collect_trajectories(
         gc.collect()
         torch.cuda.empty_cache()
 
-    return all_trajectories, n_weights, t_module.in_features, t_module.out_features
+    return all_trajectories, n_weights, t_module.in_features, t_module.out_features, ctx_dim
 
 
 def restore_layer(model, name, orig_module, device):
@@ -212,7 +224,7 @@ def main():
     steps = 20
     rank = 8
 
-    all_traj, n_weights, d_in, d_out = collect_trajectories(
+    all_traj, n_weights, d_in, d_out, ctx_dim = collect_trajectories(
         n_traj=n_train_traj + n_test_traj,
         steps_per_traj=steps,
         rank=rank,
@@ -228,7 +240,8 @@ def main():
     print(f"Training weight flow on {n_train_traj} trajectories...")
     print(f"{'='*60}")
 
-    flow = WeightFlowField(n_weights, d_latent=64, n_latents=16, d_context=1024)
+    print(f"Context dim: {ctx_dim}")
+    flow = WeightFlowField(n_weights, d_latent=64, n_latents=16, d_context=ctx_dim)
     flow.to(device)
     fopt = torch.optim.AdamW(flow.parameters(), lr=1e-3)
 

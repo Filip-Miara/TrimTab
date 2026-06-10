@@ -67,17 +67,17 @@ def eval_one_trajectory(model, text, target_module_name, orig_forward, device="c
     enc = tokenizer(text, truncation=True, padding="max_length", max_length=512, return_tensors="pt")
     input_ids = enc["input_ids"].to(device)
 
-    # Get data context (mean hidden state)
-    ctx = None
+    # Get data context (mean hidden state + gradient)
+    ctx_hidden = None
     cache = {}
     def hook_fn(m, inp, out):
-        cache["x"] = inp[0].detach().float().mean(dim=1)  # (B, d) — mean over seq
+        cache["x"] = inp[0].detach().float().mean(dim=1)  # (B, d)
     handle = orig_forward.__self__.register_forward_hook(hook_fn)
     model(input_ids=input_ids)
     handle.remove()
-    ctx = cache.get("x", torch.zeros(1, in_f))
+    ctx_hidden = cache.get("x", torch.zeros(1, in_f))
 
-    # 1. SGD trajectory
+    # 1. SGD trajectory — capture gradient context from first step
     adapter = PlainStreamExpert(in_f, out_f, RANK, 64, 64, 8.0 / RANK).to(device, dtype=torch.bfloat16)
     def fwd_sgd(x):
         return orig_forward(x) + adapter(x)
@@ -87,12 +87,24 @@ def eval_one_trajectory(model, text, target_module_name, orig_forward, device="c
     def _lora_traj(mod):
         return torch.cat([p.data.flatten() for n,p in mod.named_parameters() if 'lora_A' in n or 'lora_B' in n]).float().cpu()
     sgd_traj = [_lora_traj(adapter)]
+    grad_ctx = None
     for step in range(STEPS):
         outputs = model(input_ids=input_ids, labels=input_ids.clone())
         loss = outputs.loss
         opt.zero_grad(); loss.backward(); opt.step()
+        if step == 0:
+            for n, p in adapter.named_parameters():
+                if 'lora_B' in n and p.grad is not None:
+                    grad_ctx = p.grad.float().mean(dim=1).unsqueeze(0).cpu()
+                    break
+            if grad_ctx is None:
+                grad_ctx = torch.zeros(1, out_f)
         flat = _lora_traj(adapter)
         sgd_traj.append(flat)
+
+    # Build combined context
+    ctx = torch.cat([ctx_hidden.cpu(), grad_ctx], dim=-1)  # (1, d_in + d_out)
+    ctx_b = ctx.to(device)
 
     # Measure SGD final loss
     sgd_loss = compute_loss(model, input_ids)
@@ -102,11 +114,11 @@ def eval_one_trajectory(model, text, target_module_name, orig_forward, device="c
     orig_forward.__self__.forward = orig_forward
 
     # 2. Flow-generated weights
-    flow = WeightFlowField(n_weights, d_latent=64, n_latents=16, d_context=in_f)
+    d_ctx = in_f + out_f
+    flow = WeightFlowField(n_weights, d_latent=64, n_latents=16, d_context=d_ctx)
     flow.load_state_dict(torch.load("weight_flow_model.pt", map_location=device))
     flow.to(device).eval()
 
-    ctx_b = ctx.to(device)  # (1, 1024)
     with torch.no_grad():
         w = torch.zeros(1, n_weights, device=device)
         for s in range(STEPS):
