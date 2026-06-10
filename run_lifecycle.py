@@ -192,6 +192,7 @@ def main():
                         parent = model
                     setattr(parent, child_name, wrapped)
                     adapter_modules.append(wrapped.adapter)
+            model.to(args.device)
             print(f"  Injected {len(adapter_modules)} adapters")
         else:
             # Update config for new experts
@@ -219,6 +220,13 @@ def main():
 
         model.train()
         trainable = [p for p in model.parameters() if p.requires_grad]
+        if not trainable:
+            print("  WARNING: no trainable params! Enabling adapter grads manually.")
+            for am in adapter_modules:
+                for p in am.parameters():
+                    p.requires_grad_(True)
+            trainable = [p for p in model.parameters() if p.requires_grad]
+        print(f"  Trainable params: {sum(p.numel() for p in trainable):,}")
         opt = torch.optim.Adam(trainable, lr=args.lr)
 
         losses = []
@@ -239,12 +247,14 @@ def main():
         eval_losses = []
         with torch.no_grad():
             eenc = tokenize_texts(tokenizer, eval_texts)
-            for i in range(0, len(eenc["input_ids"]), 2):
-                ids = eenc["input_ids"][i:i + 2].to(args.device)
-                mask = eenc["attention_mask"][i:i + 2].to(args.device)
-                lbls = eenc["input_ids"][i:i + 2].clone().to(args.device)
+            for i in range(len(eenc["input_ids"])):
+                ids = eenc["input_ids"][i:i + 1].to(args.device)
+                mask = eenc["attention_mask"][i:i + 1].to(args.device)
+                lbls = eenc["input_ids"][i:i + 1].clone().to(args.device)
                 out = model(input_ids=ids, attention_mask=mask, labels=lbls)
                 eval_losses.append(out.loss.item())
+                del out
+        torch.cuda.empty_cache()
         avg_eval = sum(eval_losses) / max(len(eval_losses), 1)
         eval_ppl = compute_perplexity(avg_eval)
 

@@ -633,9 +633,11 @@ class StreamFusionLoRA(LowRankAdapter):
         ref_p = next(self.fusion.parameters())
         dev = ref_p.device
         dt = ref_p.dtype
-        if not hasattr(self, 'absorb_decoder'):
-            total_ab = self._get_absorb_dim()
+        total_ab = self._get_absorb_dim()
+        if not hasattr(self, 'absorb_decoder') or self.absorb_decoder.out_features != total_ab:
             self.absorb_decoder = nn.Linear(self.d_latent, total_ab, device=dev, dtype=dt)
+        for p in self.absorb_decoder.parameters():
+            p.requires_grad_(True)
         opt = torch.optim.Adam(self.absorb_decoder.parameters(), lr=1e-4)
         dummy_h = torch.zeros(1, self.hidden_dim, device=dev, dtype=dt)
         with torch.no_grad():
@@ -646,6 +648,8 @@ class StreamFusionLoRA(LowRankAdapter):
                 target = expert.absorb_params()
                 pred = self.absorb_decoder(Z_avg.squeeze(1))
                 total = total + F.mse_loss(pred.squeeze(), target)
+            if total.item() == 0:
+                continue
             total = total / n
             total.backward()
             opt.step()
