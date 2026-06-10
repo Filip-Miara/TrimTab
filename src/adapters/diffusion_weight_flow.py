@@ -127,7 +127,8 @@ class WeightDiffusion(nn.Module):
         w_emb = w_emb + self.time_embed(torch.cat([t_noise, t_flow], dim=-1)).unsqueeze(1)
 
         flag_emb = self.flag_proj(flags).unsqueeze(1)
-        ctx_emb = self.ctx_proj(data_ctx).unsqueeze(1)
+        ctx_flat = data_ctx.squeeze(1) if data_ctx.dim() == 3 else data_ctx
+        ctx_emb = self.ctx_proj(ctx_flat).unsqueeze(1)
 
         Z = self.latents.unsqueeze(0).expand(B, -1, -1)
         for block in self.blocks:
