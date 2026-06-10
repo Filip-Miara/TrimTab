@@ -1,0 +1,35 @@
+{
+  "config": {
+    "r": 8,
+    "alpha": 8.0,
+    "n_latents": 16,
+    "d_latent": 32,
+    "d_key": 64,
+    "top_m": 4
+  },
+  "segments": [
+    {
+      "segment": 1,
+      "training_loss": 10.315488815307617,
+      "training_ppl": 30196.726858116563,
+      "expert_count": 1,
+      "eval_loss": 9.091605949401856,
+      "eval_ppl": 8880.436137840908
+    },
+    {
+      "segment": 2,
+      "training_loss": 9.4369722366333,
+      "training_ppl": 12543.680057357027,
+      "expert_count": 2
+    },
+    {
+      "segment": 3,
+      "training_loss": 7.7816160202026365,
+      "training_ppl": 2396.1439103992984,
+      "expert_count": 3,
+      "eval_loss": 8.008856201171875,
+      "eval_ppl": 3007.4751982213133
+    }
+  ],
+  "final_eval": {}
+}

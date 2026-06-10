@@ -1,0 +1,21 @@
+{
+  "config": {
+    "r": 8,
+    "alpha": 8.0,
+    "n_latents": 16,
+    "d_latent": 32,
+    "d_key": 64,
+    "top_m": 4
+  },
+  "segments": [
+    {
+      "segment": 1,
+      "training_loss": 7.42179548740387,
+      "training_ppl": 1672.0329282896603,
+      "expert_count": 1,
+      "eval_loss": 7.816301918029785,
+      "eval_ppl": 2480.71453851626
+    }
+  ],
+  "final_eval": {}
+}

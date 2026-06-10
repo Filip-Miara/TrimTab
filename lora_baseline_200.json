@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-06-10 20:59:37",
+  "results": [
+    {
+      "variant_name": "bora",
+      "config": {
+        "r": 8,
+        "lora_alpha": 8.0,
+        "lora_dropout": 0.0
+      },
+      "trainable_params": 1566720,
+      "total_params": 1883391808,
+      "param_efficiency": 0.0008318608976343174,
+      "training_loss": 5.32431058883667,
+      "training_perplexity": 205.2667984508606,
+      "final_loss": 5.471808433532715,
+      "final_perplexity": 237.8900122693055,
+      "memory_peak_mb": 5368.18505859375,
+      "memory_allocated_mb": 3592.306640625,
+      "total_model_memory_mb": 3592.2850341796875,
+      "avg_latency_ms": 422.2138336181641,
+      "tokens_per_second": 23.68468108755447,
+      "grad_norm_avg": 6.318203125,
+      "step_time_avg_ms": 397.55502820014954,
+      "total_training_steps": 200,
+      "frobenius_ratio": 0.0,
+      "eval_loss": 5.469386768341065,
+      "eval_perplexity": 237.31461929292038,
+      "status": "completed",
+      "error": null
+    }
+  ]
+}

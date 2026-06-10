@@ -1,0 +1,53 @@
+{
+  "config": {
+    "r": 8,
+    "alpha": 8.0,
+    "n_latents": 16,
+    "d_latent": 32,
+    "d_key": 64,
+    "top_m": 4
+  },
+  "segments": [
+    {
+      "segment": 1,
+      "training_loss": 7.572025942802429,
+      "training_ppl": 1943.0728510904635,
+      "expert_count": 1,
+      "eval_loss": 7.962105560302734,
+      "eval_ppl": 2870.109784045515
+    },
+    {
+      "segment": 2,
+      "training_loss": 6.888272047042847,
+      "training_ppl": 980.7053395774678,
+      "expert_count": 2,
+      "eval_loss": 7.403190994262696,
+      "eval_ppl": 1641.2131849526454
+    },
+    {
+      "segment": 3,
+      "training_loss": 6.338797378540039,
+      "training_ppl": 566.1150796881337,
+      "expert_count": 3,
+      "eval_loss": 7.269761276245117,
+      "eval_ppl": 1436.2075552489268
+    },
+    {
+      "segment": 4,
+      "training_loss": 6.575654315948486,
+      "training_ppl": 717.4148868144646,
+      "expert_count": 4,
+      "eval_loss": 7.212579441070557,
+      "eval_ppl": 1356.3864778703933
+    },
+    {
+      "segment": 5,
+      "training_loss": 5.98161358833313,
+      "training_ppl": 396.07896119440977,
+      "expert_count": 5,
+      "eval_loss": 7.220630264282226,
+      "eval_ppl": 1367.350581419612
+    }
+  ],
+  "final_eval": {}
+}
