@@ -1,0 +1,8 @@
+{
+  "n_train": 15,
+  "n_test": 5,
+  "steps": 20,
+  "rank": 8,
+  "n_weights": 40960,
+  "train_losses": null
+}
