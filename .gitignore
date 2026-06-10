@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.codenomad/
+sweep_analysis/*_seed*.json
+sf_hybrid_*.json
+sf_sweep_*.json
+results*.json
+lora_*.json
+stream_fusion*.json
+sweep_analysis/*.json
