@@ -209,139 +209,155 @@ class VeRaStreamExpert(StreamExpert):
         return "vera"
 
 
+N_FLAGS = 7
+FLAG_NAMES = [
+    "bidirectional", "use_vectors", "use_norm", "use_gate",
+    "use_activation", "use_autoencoder", "use_polynomial",
+]
+
+
 class HybridStreamExpert(StreamExpert):
-    """Configurable expert supporting any combination of features."""
+    """Configurable expert with SOFT continuous flag blending.
+
+    Each flag is a float in [0, 1] controlling the blend between
+    having the feature disabled (0) vs fully enabled (1).
+    Flags move toward targets via exponential moving average each step.
+    This enables smooth within-segment architectural morphing.
+    """
 
     def __init__(self, in_features: int, out_features: int, rank: int, d_key: int, d_emb: int, scaling: float,
-                 bidirectional: bool = False, use_vectors: bool = False, use_norm: bool = False,
-                 use_gate: bool = False, use_activation: bool = False, use_autoencoder: bool = False,
-                 use_polynomial: bool = False, poly_order: int = 2,
-                 ve_rank: int = 0, eps: float = 1e-5, anneal_rate: float = 0.05):
+                 bidirectional: bool | float = False, use_vectors: bool | float = False,
+                 use_norm: bool | float = False, use_gate: bool | float = False,
+                 use_activation: bool | float = False, use_autoencoder: bool | float = False,
+                 use_polynomial: bool | float = False, poly_order: int = 2,
+                 ve_rank: int = 0, eps: float = 1e-5, anneal_rate: float = 0.05,
+                 morph_rate: float = 0.1):
         super().__init__(in_features, out_features, rank, d_key, d_emb, scaling)
-        self.bidirectional = bidirectional
-        self.use_vectors = use_vectors
-        self.use_norm = use_norm
-        self.use_gate = use_gate
-        self.use_activation = use_activation
-        self.use_autoencoder = use_autoencoder
-        self.use_polynomial = use_polynomial
         self.poly_order = poly_order
         self.eps = eps
         self.anneal_rate = anneal_rate
+        self.morph_rate = morph_rate
         self.register_buffer("_step", torch.tensor(0, dtype=torch.long))
 
+        target = {
+            "bidirectional": float(bidirectional),
+            "use_vectors": float(use_vectors),
+            "use_norm": float(use_norm),
+            "use_gate": float(use_gate),
+            "use_activation": float(use_activation),
+            "use_autoencoder": float(use_autoencoder),
+            "use_polynomial": float(use_polynomial),
+        }
+        self._target_flags = target
+        self._soft_flags = target.copy()
+
+        # Always create all parameters — soft flags determine blending
         self.lora_A_fwd = nn.Parameter(torch.randn(rank, in_features) / math.sqrt(rank))
         self.lora_B_fwd = nn.Parameter(torch.zeros(out_features, rank))
         self.magnitude_fwd = nn.Parameter(torch.ones(out_features))
 
-        if bidirectional:
-            self.lora_A_bwd = nn.Parameter(torch.randn(rank, out_features) / math.sqrt(rank))
-            self.lora_B_bwd = nn.Parameter(torch.zeros(in_features, rank))
-            self.magnitude_bwd = nn.Parameter(torch.ones(in_features))
+        self.lora_A_bwd = nn.Parameter(torch.randn(rank, out_features) / math.sqrt(rank))
+        self.lora_B_bwd = nn.Parameter(torch.zeros(in_features, rank))
+        self.magnitude_bwd = nn.Parameter(torch.ones(in_features))
 
-        if use_vectors:
-            vr = ve_rank if ve_rank > 0 else max(1, rank // 2)
-            self.ve_rank_actual = vr
-            self.register_buffer("ve_A_fwd", torch.randn(vr, in_features) / math.sqrt(in_features))
-            self.register_buffer("ve_B_fwd", torch.randn(out_features, vr) / math.sqrt(vr))
-            self.ve_lambda_fwd = nn.Parameter(torch.randn(vr) * 0.01)
-            if bidirectional:
-                self.register_buffer("ve_A_bwd", torch.randn(vr, out_features) / math.sqrt(out_features))
-                self.register_buffer("ve_B_bwd", torch.randn(in_features, vr) / math.sqrt(vr))
-                self.ve_lambda_bwd = nn.Parameter(torch.randn(vr) * 0.01)
+        vr = ve_rank if ve_rank > 0 else max(1, rank // 2)
+        self.ve_rank_actual = vr
+        self.register_buffer("ve_A_fwd", torch.randn(vr, in_features) / math.sqrt(in_features))
+        self.register_buffer("ve_B_fwd", torch.randn(out_features, vr) / math.sqrt(vr))
+        self.ve_lambda_fwd = nn.Parameter(torch.randn(vr) * 0.01)
+        self.register_buffer("ve_A_bwd", torch.randn(vr, out_features) / math.sqrt(out_features))
+        self.register_buffer("ve_B_bwd", torch.randn(in_features, vr) / math.sqrt(vr))
+        self.ve_lambda_bwd = nn.Parameter(torch.randn(vr) * 0.01)
 
-        if use_autoencoder:
-            hidden_r = max(1, rank * 2)
-            self.ANL_fwd = nn.Sequential(
-                nn.Linear(rank, hidden_r), nn.GELU(), nn.Linear(hidden_r, rank),
-            )
-            if bidirectional:
-                self.ANL_bwd = nn.Sequential(
-                    nn.Linear(rank, hidden_r), nn.GELU(), nn.Linear(hidden_r, rank),
-                )
-            # init near-identity
-            for m in [self.ANL_fwd] + ([self.ANL_bwd] if bidirectional else []):
-                nn.init.xavier_uniform_(m[0].weight, gain=0.1)
-                nn.init.zeros_(m[0].bias)
-                nn.init.xavier_uniform_(m[2].weight, gain=0.1)
-                nn.init.zeros_(m[2].bias)
+        hidden_r = max(1, rank * 2)
+        self.ANL_fwd = nn.Sequential(
+            nn.Linear(rank, hidden_r), nn.GELU(), nn.Linear(hidden_r, rank),
+        )
+        self.ANL_bwd = nn.Sequential(
+            nn.Linear(rank, hidden_r), nn.GELU(), nn.Linear(hidden_r, rank),
+        )
+        for m in [self.ANL_fwd, self.ANL_bwd]:
+            nn.init.xavier_uniform_(m[0].weight, gain=0.1)
+            nn.init.zeros_(m[0].bias)
+            nn.init.xavier_uniform_(m[2].weight, gain=0.1)
+            nn.init.zeros_(m[2].bias)
 
-        if use_polynomial:
-            self.poly_coeff_fwd = nn.Parameter(torch.randn(poly_order) * 0.01)
-            if bidirectional:
-                self.poly_coeff_bwd = nn.Parameter(torch.randn(poly_order) * 0.01)
+        self.poly_coeff_fwd = nn.Parameter(torch.randn(poly_order) * 0.01)
+        self.poly_coeff_bwd = nn.Parameter(torch.randn(poly_order) * 0.01)
 
-        if use_norm:
-            self.norm = nn.LayerNorm(out_features)
+        self.norm = nn.LayerNorm(out_features)
+        self.gate = nn.Parameter(torch.tensor(1.0))
 
-        if use_gate:
-            self.gate = nn.Parameter(torch.tensor(1.0))
+    def set_targets(self, targets: dict[str, float], morph_rate: float | None = None):
+        for k, v in targets.items():
+            if k in self._target_flags:
+                self._target_flags[k] = float(v)
+        if morph_rate is not None:
+            self.morph_rate = morph_rate
+
+    def get_soft_flags(self) -> dict[str, float]:
+        return self._soft_flags.copy()
+
+    def morph_step(self):
+        """Move soft flags toward targets. Call once per training step."""
+        for k in self._soft_flags:
+            diff = self._target_flags[k] - self._soft_flags[k]
+            self._soft_flags[k] += diff * self.morph_rate
+            self._soft_flags[k] = max(0.0, min(1.0, self._soft_flags[k]))
 
     def _get_alpha(self) -> float:
         t = self._step.item()
         return math.exp(-self.anneal_rate * max(0, t))
 
-    def _apply_activation(self, A: torch.Tensor) -> torch.Tensor:
-        if not self.use_activation:
-            return A
-        alpha = self._get_alpha()
-        return (1 - alpha) * A + alpha * torch.tanh(A)
+    def _compute_delta_for(self, A_fwd, B_fwd, A_bwd, B_bwd, magnitude_fwd, magnitude_bwd, x) -> torch.Tensor:
+        sf = self._soft_flags
+        alpha = self._get_alpha() if sf["use_activation"] > 0 else 0.0
 
-    def _compute_BA(self, A, B, ve_A=None, ve_B=None, ve_lambda=None, poly_coeffs=None, anl=None):
-        A_act = self._apply_activation(A)
+        def apply_fwd(A, B, magnitude, ve_A, ve_B, ve_lambda, anl, poly_coeffs):
+            """Compute fwd delta: x @ (magnitude * normalize(BA + VE + POLY)).T"""
+            A_act = A
+            if sf["use_activation"] > 0:
+                A_act = (1 - alpha) * A + alpha * torch.tanh(A) * sf["use_activation"]
+            if sf["use_autoencoder"] > 0 and anl is not None:
+                A_act = (1 - sf["use_autoencoder"]) * A_act + sf["use_autoencoder"] * anl(A_act.T).T
+            BA = B @ A_act
+            if sf["use_vectors"] > 0 and ve_lambda is not None:
+                BA = BA + ve_B @ (ve_lambda[:, None] * ve_A) * sf["use_vectors"]
+            poly_term = None
+            if sf["use_polynomial"] > 0 and poly_coeffs is not None:
+                poly_term = poly_coeffs[0] * BA
+                for o in range(1, len(poly_coeffs)):
+                    poly_term = poly_term + poly_coeffs[o] * (BA ** (o + 1))
+            DA = BA if poly_term is None else (1 - sf["use_polynomial"]) * BA + sf["use_polynomial"] * poly_term
+            DA = self.lambda_ * self.scaling * DA
+            col_norm = DA.norm(p=2, dim=1, keepdim=True)
+            DA = magnitude[:, None] * (DA / (col_norm + self.eps))
+            return x @ DA.T
 
-        if anl is not None:
-            A_act = anl(A_act.T).T
+        delta = apply_fwd(A_fwd, B_fwd, magnitude_fwd,
+                          self.ve_A_fwd, self.ve_B_fwd, self.ve_lambda_fwd,
+                          self.ANL_fwd, self.poly_coeff_fwd)
 
-        BA = B @ A_act
+        if sf["bidirectional"] > 0:
+            delta_bwd = apply_fwd(A_bwd, B_bwd, magnitude_bwd,
+                                  self.ve_A_bwd, self.ve_B_bwd, self.ve_lambda_bwd,
+                                  self.ANL_bwd, self.poly_coeff_bwd)
+            delta = (1 - sf["bidirectional"]) * delta + sf["bidirectional"] * (delta + delta_bwd) / 2
 
-        if ve_A is not None and ve_lambda is not None:
-            BA = BA + ve_B @ (ve_lambda[:, None] * ve_A)
+        if sf["use_norm"] > 0:
+            delta = (1 - sf["use_norm"]) * delta + sf["use_norm"] * self.norm(delta)
 
-        if poly_coeffs is not None:
-            result = poly_coeffs[0] * BA
-            for order in range(1, len(poly_coeffs)):
-                result = result + poly_coeffs[order] * (BA ** (order + 1))
-            BA = result
+        if sf["use_gate"] > 0:
+            delta = delta * (1 + (torch.sigmoid(self.gate) - 1) * sf["use_gate"])
 
-        return BA
-
-    def _compute_delta_dir(self, A, B, magnitude, **extras):
-        BA = self.lambda_ * self.scaling * self._compute_BA(A, B, **extras)
-        col_norm = BA.norm(p=2, dim=1, keepdim=True)
-        normalized = BA / (col_norm + self.eps)
-        return magnitude[:, None] * normalized
+        return delta
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        extras_fwd = dict(
-            ve_A=getattr(self, 've_A_fwd', None), ve_B=getattr(self, 've_B_fwd', None),
-            ve_lambda=getattr(self, 've_lambda_fwd', None),
-            poly_coeffs=getattr(self, 'poly_coeff_fwd', None),
-            anl=getattr(self, 'ANL_fwd', None),
+        out = self._compute_delta_for(
+            self.lora_A_fwd, self.lora_B_fwd,
+            self.lora_A_bwd, self.lora_B_bwd,
+            self.magnitude_fwd, self.magnitude_bwd, x,
         )
-        delta_fwd = self._compute_delta_dir(
-            self.lora_A_fwd, self.lora_B_fwd, self.magnitude_fwd, **extras_fwd,
-        )
-        out = x @ delta_fwd.T
-
-        if self.bidirectional:
-            extras_bwd = dict(
-                ve_A=getattr(self, 've_A_bwd', None), ve_B=getattr(self, 've_B_bwd', None),
-                ve_lambda=getattr(self, 've_lambda_bwd', None),
-                poly_coeffs=getattr(self, 'poly_coeff_bwd', None),
-                anl=getattr(self, 'ANL_bwd', None),
-            )
-            delta_bwd = self._compute_delta_dir(
-                self.lora_A_bwd, self.lora_B_bwd, self.magnitude_bwd, **extras_bwd,
-            )
-            out = out + x @ delta_bwd
-
-        if self.use_norm:
-            out = self.norm(out)
-
-        if self.use_gate:
-            out = out * torch.sigmoid(self.gate)
-
         self._step += 1
         return out
 
@@ -349,54 +365,30 @@ class HybridStreamExpert(StreamExpert):
         parts = [
             self.lora_A_fwd.detach().flatten(), self.lora_B_fwd.detach().flatten(),
             self.magnitude_fwd.detach().flatten(),
+            self.lora_A_bwd.detach().flatten(), self.lora_B_bwd.detach().flatten(),
+            self.magnitude_bwd.detach().flatten(),
+            self.ve_lambda_fwd.detach().flatten(), self.ve_lambda_bwd.detach().flatten(),
         ]
-        if self.bidirectional:
-            parts += [
-                self.lora_A_bwd.detach().flatten(), self.lora_B_bwd.detach().flatten(),
-                self.magnitude_bwd.detach().flatten(),
-            ]
-        if self.use_vectors:
-            parts.append(self.ve_lambda_fwd.detach().flatten())
-            if self.bidirectional:
-                parts.append(self.ve_lambda_bwd.detach().flatten())
-        if self.use_polynomial:
-            parts.append(self.poly_coeff_fwd.detach().flatten())
-            if self.bidirectional:
-                parts.append(self.poly_coeff_bwd.detach().flatten())
-        if self.use_autoencoder:
-            for p in self.ANL_fwd.parameters():
-                parts.append(p.detach().flatten())
-            if self.bidirectional:
-                for p in self.ANL_bwd.parameters():
-                    parts.append(p.detach().flatten())
-        if self.use_gate:
-            parts.append(self.gate.detach().flatten())
+        for p in self.ANL_fwd.parameters():
+            parts.append(p.detach().flatten())
+        for p in self.ANL_bwd.parameters():
+            parts.append(p.detach().flatten())
+        parts.append(self.poly_coeff_fwd.detach().flatten())
+        parts.append(self.poly_coeff_bwd.detach().flatten())
+        parts.append(self.gate.detach().flatten())
         return torch.cat(parts)
 
     @classmethod
     def absorb_dim(cls, in_features: int, out_features: int, rank: int, **kwargs) -> int:
-        total = rank * (in_features + out_features) + out_features
-        if kwargs.get("bidirectional", False):
-            total += rank * (out_features + in_features) + in_features
-        if kwargs.get("use_vectors", False):
-            vr = kwargs.get("ve_rank", 0) or max(1, rank // 2)
-            total += vr
-            if kwargs.get("bidirectional", False):
-                total += vr
-        if kwargs.get("use_polynomial", False):
-            po = kwargs.get("poly_order", 2)
-            total += po
-            if kwargs.get("bidirectional", False):
-                total += po
-        if kwargs.get("use_autoencoder", False):
-            hidden_r = max(1, rank * 2)
-            ae = rank * hidden_r + hidden_r + hidden_r * rank + rank
-            total += ae
-            if kwargs.get("bidirectional", False):
-                total += ae
-        if kwargs.get("use_gate", False):
-            total += 1
-        return total
+        base = rank * (in_features + out_features) + out_features
+        base += rank * (out_features + in_features) + in_features  # bwd
+        vr = kwargs.get("ve_rank", 0) or max(1, rank // 2)
+        base += vr + vr  # ve_lambda fwd + bwd
+        hidden_r = max(1, rank * 2)
+        base += 2 * (rank * hidden_r + hidden_r + hidden_r * rank + rank)  # ANL fwd + bwd
+        base += kwargs.get("poly_order", 2) * 2  # poly coeff fwd + bwd
+        base += 1  # gate
+        return base
 
     @classmethod
     def variant_name(cls) -> ExpertVariant:
@@ -405,13 +397,22 @@ class HybridStreamExpert(StreamExpert):
 
 def _hybrid_name(flags: dict) -> str:
     parts = []
-    if flags.get("bidirectional"): parts.append("B")
-    if flags.get("use_vectors"): parts.append("V")
-    if flags.get("use_activation"): parts.append("AFA")
-    if flags.get("use_autoencoder"): parts.append("AUR")
-    if flags.get("use_polynomial"): parts.append("PERA")
-    if flags.get("use_norm"): parts.append("A")
-    if flags.get("use_gate"): parts.append("GA")
+    if isinstance(next(iter(flags.values())), bool):
+        if flags.get("bidirectional"): parts.append("B")
+        if flags.get("use_vectors"): parts.append("V")
+        if flags.get("use_activation"): parts.append("AFA")
+        if flags.get("use_autoencoder"): parts.append("AUR")
+        if flags.get("use_polynomial"): parts.append("PERA")
+        if flags.get("use_norm"): parts.append("A")
+        if flags.get("use_gate"): parts.append("GA")
+    else:
+        if flags.get("bidirectional", 0) > 0.5: parts.append("B")
+        if flags.get("use_vectors", 0) > 0.5: parts.append("V")
+        if flags.get("use_activation", 0) > 0.5: parts.append("AFA")
+        if flags.get("use_autoencoder", 0) > 0.5: parts.append("AUR")
+        if flags.get("use_polynomial", 0) > 0.5: parts.append("PERA")
+        if flags.get("use_norm", 0) > 0.5: parts.append("A")
+        if flags.get("use_gate", 0) > 0.5: parts.append("GA")
     return "".join(parts) if parts else "plain"
 
 

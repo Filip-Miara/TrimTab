@@ -99,7 +99,7 @@ class MetaController(nn.Module):
             nn.LayerNorm(d_model),
             nn.Linear(d_model, d_model // 2),
             nn.GELU(),
-            nn.Linear(d_model // 2, N_FLAGS + 1),
+            nn.Linear(d_model // 2, N_FLAGS + 2),  # +2 for poly_order + morph_rate
         )
 
     def forward(
@@ -107,11 +107,11 @@ class MetaController(nn.Module):
         history: list[AdapterState],
         return_attention: bool = False,
         temperature: float = 1.0,
-    ) -> tuple[dict[str, float], int, torch.Tensor | None]:
+    ) -> tuple[dict[str, float], int, float, torch.Tensor | None]:
+        """Returns (soft_target_flags, poly_order, morph_rate, attention)."""
         if not history:
-            flags = {k: False for k in FLAG_NAMES}
-            flags["use_polynomial"] = True
-            return flags, 2, None
+            flags = {k: 1.0 if k == "use_polynomial" else 0.0 for k in FLAG_NAMES}
+            return flags, 2, 0.1, None
 
         vectors = [s.to_vector(self.max_history) for s in history]
         x = torch.stack(vectors).unsqueeze(0)
@@ -126,19 +126,19 @@ class MetaController(nn.Module):
         logits = self.output_net(last).squeeze(0)
 
         flag_logits = logits[:N_FLAGS]
-        poly_logit = logits[N_FLAGS:]
+        poly_logit = logits[N_FLAGS]
+        morph_logit = logits[N_FLAGS + 1]
 
-        raw_flags = AdapterState.soft_flags_from_vec(flag_logits, temperature)
-        # Round to binary for the actual config
-        flags = {k: v > 0.5 for k, v in raw_flags.items()}
+        soft_flags: dict[str, float] = {}
+        for i, name in enumerate(FLAG_NAMES):
+            p = torch.sigmoid(flag_logits[i] / temperature)
+            soft_flags[name] = float(p.item())
 
         poly_order = max(1, min(4, int(torch.round(torch.sigmoid(poly_logit) * 3 + 1).item())))
+        morph_rate = float(torch.sigmoid(morph_logit).item())
 
-        attn = None
-        if return_attention:
-            attn = x  # simplified; real attn weights need hook
-
-        return flags, poly_order, attn
+        attn = x if return_attention else None
+        return soft_flags, poly_order, morph_rate, attn
 
 
 class AdapterEvolution:
@@ -181,9 +181,9 @@ class AdapterEvolution:
     def _get_params(self) -> torch.Tensor:
         return torch.cat([p.data.flatten() for p in self.controller.parameters()])
 
-    def suggest_config(self, history: list[AdapterState], temperature: float = 1.0) -> tuple[dict[str, bool], int]:
-        flags, poly, _ = self.controller(history, temperature=temperature)
-        return flags, poly
+    def suggest_config(self, history: list[AdapterState], temperature: float = 1.0) -> tuple[dict[str, float], int, float]:
+        flags, poly, morph_rate, _ = self.controller(history, temperature=temperature)
+        return flags, poly, morph_rate
 
     def record_fitness(self, individual_idx: int, fitness: float):
         self.fitness[individual_idx] = fitness

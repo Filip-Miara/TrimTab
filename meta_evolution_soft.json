@@ -1,0 +1,77 @@
+{
+  "config": {
+    "n_segments": 3,
+    "steps_per_segment": 15,
+    "num_texts": 20,
+    "r": 8,
+    "alpha": 8.0,
+    "lr": 0.0002,
+    "device": "cuda",
+    "seed": 42,
+    "pop_size": 6,
+    "generations": 5,
+    "output": "meta_evolution_soft.json"
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "fitnesses": [
+        -3609.045755705411,
+        -3764.949233889366,
+        -3411.9735219202475,
+        -3621.866838181827,
+        -3492.762894627646,
+        -3688.067423196737
+      ],
+      "best_fitness": -3411.9736328125,
+      "best_trajectory": [
+        {
+          "segment": 1,
+          "flags": {
+            "bidirectional": false,
+            "use_vectors": false,
+            "use_norm": false,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": false,
+            "use_polynomial": true
+          },
+          "poly_order": 2,
+          "eval_ppl": 7972.084847485515,
+          "improvement": 0
+        },
+        {
+          "segment": 2,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": false,
+            "use_norm": true,
+            "use_gate": false,
+            "use_activation": false,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3761.160971873902,
+          "improvement": 4210.923875611613
+        },
+        {
+          "segment": 3,
+          "flags": {
+            "bidirectional": true,
+            "use_vectors": false,
+            "use_norm": true,
+            "use_gate": true,
+            "use_activation": false,
+            "use_autoencoder": true,
+            "use_polynomial": false
+          },
+          "poly_order": 2,
+          "eval_ppl": 3411.9735219202475,
+          "improvement": 349.1874499536543
+        }
+      ],
+      "population_variance": 0.006718533579260111
+    }
+  ]
+}
