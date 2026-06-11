@@ -223,13 +223,13 @@ def main():
     print(f"\nTraining diffusion flow...")
     t0 = time.time()
     for epoch in range(15):
-        losses, ld, lf, lo = [], [], [], []
+        losses, ld, lf, lo, ls = [], [], [], [], []
         np.random.shuffle(augmented)
         for d in augmented:
             opt_t = d['optimal_target']
             if opt_t is not None:
                 opt_t = opt_t.unsqueeze(0).to(DEVICE)
-            l, d_l, f_l, o_l = trainer.train_step(
+            l, d_l, f_l, o_l, s_l = trainer.train_step(
                 d['clean'].unsqueeze(0).to(DEVICE),
                 d['next'].unsqueeze(0).to(DEVICE),
                 d['flags'].unsqueeze(0).to(DEVICE),
@@ -238,9 +238,9 @@ def main():
                 torch.tensor([[d['t_flow']]]).to(DEVICE),
                 optimal_target=opt_t,
             )
-            losses.append(l); ld.append(d_l); lf.append(f_l); lo.append(o_l if o_l else 0)
+            losses.append(l); ld.append(d_l); lf.append(f_l); lo.append(o_l if o_l else 0); ls.append(s_l)
         dt = time.time() - t0
-        print(f"  Epoch {epoch}: total={np.mean(losses):.6f} diff={np.mean(ld):.6f} flow={np.mean(lf):.6f} opt={np.mean(lo):.6f} ({dt:.0f}s)")
+        print(f"  Epoch {epoch}: total={np.mean(losses):.6f} diff={np.mean(ld):.6f} flow={np.mean(lf):.6f} opt={np.mean(lo):.6f} stag={np.mean(ls):.6f} ({dt:.0f}s)")
 
     # Save model
     flow.cpu()

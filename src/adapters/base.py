@@ -62,7 +62,7 @@ def adapt_linear_layer(
 ) -> nn.Module:
     adapter = adapter_cls(layer.in_features, layer.out_features, config)
     w = weight if weight is not None else layer.weight.data.clone()
-    adapter = adapter.to(dtype=w.dtype)
+    adapter = adapter.to(dtype=w.dtype, device=w.device)
     adapter.model_dtype = w.dtype
     wrapped = AdapterWrappedLinear(layer, adapter, w)
     return wrapped

@@ -29,6 +29,13 @@ from .ebv_auroran import EBVAuroRAN
 from .afa_bvoran import AFABVoRAN
 from .afa_ebvoran import AFAEBVoRAN
 from .stream_fusion import StreamFusionLoRA, StreamFusionConfig
+from .diagloran import DiagLoRAN
+from .multiangle_loran import MultiAngleLoRAN
+from .cycled_loran import CycledBoRAN
+from .cycled_axial_loran import CycledAxialBoRA
+from .cycled_diagloran import CycledDiagLoRA
+from .plain_lora import PlainLoRA
+from .dora_combo_adapters import *
 from .combo_adapters import (
     GenBVoRAN,
     GenBVoRANGA,
@@ -108,5 +115,10 @@ __all__ = [
     "BPVERAN", "EBPVERAN",
     "BVAuroRAN", "EBVAuroRAN",
     "AFABVoRAN", "AFAEBVoRAN",
+    "DiagLoRAN",
+    "CycledBoRAN",
+    "CycledAxialBoRA",
+    "CycledDiagLoRA",
+    "PlainLoRA",
     "StreamFusionLoRA", "StreamFusionConfig",
 ]

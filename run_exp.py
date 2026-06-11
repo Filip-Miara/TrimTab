@@ -28,7 +28,8 @@ from src.adapters.knit_bvoran import clear_knit_registry
 from src.adapters import (
     AdapterConfig, AdapterWrappedLinear, LowRankAdapter, adapt_linear_layer,
     DoRA, BoRA, EDoRA, DVoRA, DoRAN, QDoRA, QADoRA,
-    EDoRAN, EBoRA, EBoRAN, BVoRA,
+    EDoRAN, EBoRA, EBoRAN, BVoRA, DiagLoRAN, MultiAngleLoRAN, CycledBoRAN,
+    CycledAxialBoRA, CycledDiagLoRA, PlainLoRA,
     BVoRAN, EBVoRAN,
     SeBVoRAN, ESeBVoRAN,
     KnitBVoRAN, KnitEBVoRAN,
@@ -110,10 +111,7 @@ from src.evaluation.metrics import measure_inference_speed, measure_memory, coun
 
 
 # ── Model ──────────────────────────────────────────────────────────
-MODEL_PATH = os.path.join(
-    os.path.expanduser("~/.cache/huggingface/hub"),
-    "models--Qwen--Qwen3.5-2B/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
-)
+MODEL_PATH = "/run/media/filip/B522-875D/Datasets/hub/models--HuggingFaceTB--SmolLM2-135M/snapshots/93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
 
 # Fallback: load from external HDD if not on SSD
 if not os.path.exists(MODEL_PATH):
@@ -237,10 +235,72 @@ UNIQUE_STANDALONE: dict[str, type[LowRankAdapter]] = {
     "eb_pveran": EBPVERAN,
     "bv_auroran": BVAuroRAN,
     "ebv_auroran": EBVAuroRAN,
+    "diag_loran": DiagLoRAN,
+    "multiangle_loran": MultiAngleLoRAN,
+    "cycled_bvoran": CycledBoRAN,
+    "cycled_axial_loran": CycledAxialBoRA,
+    "plain_lora": PlainLoRA,
+    "cycled_diag_lora": CycledDiagLoRA,
     "stream_fusion": StreamFusionLoRA,
 }
 
 ADAPTER_VARIANTS.update(UNIQUE_STANDALONE)
+
+# Cycling variants with and without LayerNorm
+def _cycled_wrapper(cls, has_norm):
+    class Wrapped(cls):
+        def __init__(self, in_f, out_f, config):
+            config.extra_kwargs["has_norm"] = has_norm
+            super().__init__(in_f, out_f, config)
+    Wrapped.__name__ = f"{cls.__name__}_{'norm' if has_norm else 'nonorm'}"
+    return Wrapped
+
+for suffix, cls, has_norm in [
+    ("cycled_bora", CycledBoRAN, False),
+    ("cycled_axial_bora", CycledAxialBoRA, False),
+    ("cycled_boran", CycledBoRAN, True),
+    ("cycled_axial_boran", CycledAxialBoRA, True),
+]:
+    ADAPTER_VARIANTS[f"gend_{suffix}"] = _cycled_wrapper(cls, has_norm)
+
+# Zipped Knit variants for SmolLM test
+ADAPTER_VARIANTS["gend_knit_dora"] = _cycled_wrapper(
+    __import__("src.adapters.dora_combo_adapters", fromlist=["GenDKnitDoRA"]).GenDKnitDoRA, False
+)
+ADAPTER_VARIANTS["gend_knit_doran"] = _cycled_wrapper(
+    __import__("src.adapters.dora_combo_adapters", fromlist=["GenDKnitDoRAN"]).GenDKnitDoRAN, True
+)
+
+# DoRA-style (single-direction) combinatoric variants, ±LayerNorm
+from src.adapters.dora_combo_adapters import (GenDDoRA, GenDDoRAN, GenDDoRAGA, GenDDoRANGA,
+    GenDEVADoRA, GenDEVADoRAN, GenDEVADoRAGA, GenDEVADoRANGA,
+    GenDAFADoRA, GenDAFADoRAN, GenDAFADoRAGA, GenDAFADoRANGA,
+    GenDAFAEVADoRA, GenDAFAEVADoRAN, GenDAFAEVADoRAGA, GenDAFAEVADoRANGA,
+    GenDSRDoRA, GenDSRDoRAN, GenDSRDoRAGA, GenDSRDoRANGA,
+    GenDSREVADoRA, GenDSREVADoRAN, GenDSREVADoRAGA, GenDSREVADoRANGA,
+    GenDSRAFADoRA, GenDSRAFADoRAN, GenDSRAFADoRAGA, GenDSRAFADoRANGA,
+    GenDSRAFAEVADoRA, GenDSRAFAEVADoRAN, GenDSRAFAEVADoRAGA, GenDSRAFAEVADoRANGA,)
+DORA_COMBO: dict[str, type[LowRankAdapter]] = {}
+for suffix, cls in [
+    ("dora", GenDDoRA), ("dora_ga", GenDDoRAGA),
+    ("eva_dora", GenDEVADoRA), ("eva_dora_ga", GenDEVADoRAGA),
+    ("afa_dora", GenDAFADoRA), ("afa_dora_ga", GenDAFADoRAGA),
+    ("afa_eva_dora", GenDAFAEVADoRA), ("afa_eva_dora_ga", GenDAFAEVADoRAGA),
+    ("sr_dora", GenDSRDoRA), ("sr_dora_ga", GenDSRDoRAGA),
+    ("sr_eva_dora", GenDSREVADoRA), ("sr_eva_dora_ga", GenDSREVADoRAGA),
+    ("sr_afa_dora", GenDSRAFADoRA), ("sr_afa_dora_ga", GenDSRAFADoRAGA),
+    ("sr_afa_eva_dora", GenDSRAFAEVADoRA), ("sr_afa_eva_dora_ga", GenDSRAFAEVADoRAGA),
+    ("doran", GenDDoRAN), ("doran_ga", GenDDoRANGA),
+    ("eva_doran", GenDEVADoRAN), ("eva_doran_ga", GenDEVADoRANGA),
+    ("afa_doran", GenDAFADoRAN), ("afa_doran_ga", GenDAFADoRANGA),
+    ("afa_eva_doran", GenDAFAEVADoRAN), ("afa_eva_doran_ga", GenDAFAEVADoRANGA),
+    ("sr_doran", GenDSRDoRAN), ("sr_doran_ga", GenDSRDoRANGA),
+    ("sr_eva_doran", GenDSREVADoRAN), ("sr_eva_doran_ga", GenDSREVADoRANGA),
+    ("sr_afa_doran", GenDSRAFADoRAN), ("sr_afa_doran_ga", GenDSRAFADoRANGA),
+    ("sr_afa_eva_doran", GenDSRAFAEVADoRAN), ("sr_afa_eva_doran_ga", GenDSRAFAEVADoRANGA),
+]:
+    DORA_COMBO[f"gend_{suffix}"] = cls
+ADAPTER_VARIANTS.update(DORA_COMBO)
 
 
 def find_linear_layers(model: nn.Module, target_modules: tuple[str, ...]) -> dict[str, nn.Linear]:
@@ -461,6 +521,7 @@ def main():
     parser.add_argument("--output", type=str, default="results_2b.json", help="Output JSON path")
     parser.add_argument("--num-train", type=int, default=1000, help="Number of training texts")
     parser.add_argument("--num-eval", type=int, default=200, help="Number of eval texts")
+    parser.add_argument("--edora-group-size", type=int, default=0, help="EDoRA group size (0=auto)")
     parser.add_argument("--resume", type=str, default="", help="Resume from existing results JSON")
     args = parser.parse_args()
 
@@ -473,6 +534,7 @@ def main():
         r=args.r,
         lora_alpha=args.alpha,
         lora_dropout=args.dropout,
+        edora_group_size=args.edora_group_size,
     )
 
     report = ComparisonReport(timestamp=time.strftime("%Y-%m-%d %H:%M:%S"))

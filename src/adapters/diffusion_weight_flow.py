@@ -248,6 +248,7 @@ class DiffusionFlowTrainer:
         lambda_diff: float = 1.0,
         lambda_flow: float = 0.1,
         lambda_optimal: float = 0.5,
+        lambda_stagnation: float = 0.2,
         curriculum_epochs: int = 10,
     ):
         self.model = model.to(device)
@@ -256,6 +257,7 @@ class DiffusionFlowTrainer:
         self.lambda_diff = lambda_diff
         self.lambda_flow = lambda_flow
         self.lambda_optimal = lambda_optimal
+        self.lambda_stagnation = lambda_stagnation
         self.curriculum_epochs = curriculum_epochs
         self._epoch = 0
 
@@ -276,7 +278,7 @@ class DiffusionFlowTrainer:
         t_noise: torch.Tensor,
         t_flow: torch.Tensor,
         optimal_target: torch.Tensor | None = None,
-    ) -> tuple[float, float, float, float]:
+    ) -> tuple[float, float, float, float, float]:
         """Single training step with normalized denoising.
 
         Noise is scaled to match the weight distribution's standard deviation.
@@ -304,7 +306,8 @@ class DiffusionFlowTrainer:
         # Loss components
         loss_diff = F.mse_loss(noise_pred, noise)
         loss_flow = F.mse_loss(velocity_pred, target_velocity)
-        loss = self.lambda_diff * loss_diff + self.lambda_flow * loss_flow
+        loss_stag = -self.lambda_stagnation * velocity_pred.pow(2).mean()
+        loss = self.lambda_diff * loss_diff + self.lambda_flow * loss_flow + loss_stag
 
         if optimal_target is not None and self.lambda_optimal > 0:
             loss_opt = F.mse_loss(velocity_pred, optimal_target.to(self.device))
@@ -317,7 +320,7 @@ class DiffusionFlowTrainer:
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.opt.step()
 
-        return loss.item(), loss_diff.item(), loss_flow.item(), loss_opt if isinstance(loss_opt, float) else loss_opt.item()
+        return loss.item(), loss_diff.item(), loss_flow.item(), loss_opt if isinstance(loss_opt, float) else loss_opt.item(), loss_stag.item()
 
     @torch.no_grad()
     def generate_weights(

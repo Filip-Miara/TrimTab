@@ -2,240 +2,357 @@
 
 ## 1. Project State
 
-**Goal**: Compare 47 LoRA variants on language modeling perplexity (Qwen3.5-0.8B, WikiText-2, r=8, α=8, 50 steps, single batch). Identify best-performing hybrid adapter designs.
+**Goal**: End-to-end system for online continual learning with adaptive LoRA adapters. Spans three phases:
+- **Phase 1 (original)**: Compare 47 LoRA variants on ppl (Qwen3.5-0.8B, r=8, α=8, 50 steps)
+- **Phase 2 (expansion)**: SmolLM2-135M sweeps — combinatoric variants, cycling architectures, DiagLoRA/MultiAngleLoRA
+- **Phase 3 (StreamFusion)**: Online continual learning with PerceiverFusion bottleneck, TAF routing, weight flow matching, diffusion denoising, MetaController lifecycles, dynamic K
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `run_exp.py` | Main experiment runner — loads model, injects adapters, trains 50 steps, tests inference speed |
-| `gen_combo.py` | Generator for 18 combinatoric hybrid adapter classes from technique flags (AFA, GA, SR, Knit, EVA × BVoRAN/EBVoRAN) |
-| `src/adapters/base.py` | `LowRankAdapter` base class + `AdapterConfig` |
-| `src/adapters/__init__.py` | Exports all 47 adapter classes with `__all__` |
-| `src/adapters/combo_adapters.py` | 120KB generated file — 18 combinatoric hybrid adapter classes |
-| `src/adapters/knit_bvoran.py` | Knit implementation (KV-cache non-compatible) |
-| `src/adapters/spectral_utils.py` | Spectral initialization utilities (SR) |
-| `src/training/trainer.py` | Training loop (50 steps, AdamW, LR 2e-4) |
-| `src/evaluation/benchmark.py` | Benchmark runner (perplexity, inference speed) |
-| `src/training/data.py` | WikiText-2 dataset loading |
-| `results_v3_final.json` | 29 baseline variants (v3) |
-| `results_v4_combo.json` | 18 combinatoric variants (v4) |
-| `results_final_47_ranking.json` | Merged 47-variant ranking (all) |
-| `results_final_no_knit.json` | 37-variant deployable ranking (no Knit) |
+| File | Purpose | Phase |
+|------|---------|-------|
+| `run_exp.py` | Main batch experiment runner (HF model, arxiv, 100 steps) | 1+2 |
+| `run_stream_fusion.py` | Streaming continual learning (segments + experts) | 3 |
+| `run_lifecycle.py` | PERA→BVA morphing lifecycle schedule | 3 |
+| `run_meta_evolution.py` | ES optimization over adapter lifecycles | 3 |
+| `run_weight_flow_train.py` | Weight trajectory collection + flow training on real LM data | 3 |
+| `run_weight_flow_eval.py` | Evaluation: flow-generated vs SGD vs zero weights | 3 |
+| `run_diffusion_flow_train.py` | Diffusion + flow matching over weights (diverse data) | 3 |
+| `run_diffusion_flow_eval.py` | WeightDiffusion vs SGD vs zero evaluation | 3 |
+| `run_sweep_analysis.py` | Multi-seed multi-segment analysis | 3 |
+| `run_comparison.py` | Flow vs SVD vs SGD velocity cosine similarity | 3 |
+| `gen_combo.py` | Generator for bidirectional combinatorics | 2 |
+| `gen_dora.py` | Generator for DoRA-style combinatorics | 2 |
+| `src/adapters/stream_fusion.py` | **StreamFusionLoRA**, PerceiverFusion, HybridStreamExpert, all expert variants | 3 |
+| `src/adapters/diffusion_weight_flow.py` | WeightDiffusion (flow + denoising + optimal target), DiffusionFlowTrainer | 3 |
+| `src/adapters/flow_weight_expert.py` | FlowWeightExpert, compute_closed_form_lora (SVD optimal) | 3 |
+| `src/adapters/adapter_evolution.py` | MetaController, AdapterEvolution (ES), LifecycleConfig | 3 |
+| `src/adapters/dynamic_k.py` | Dynamic K: entropy-thresholded + adaptive growth | 3 |
+| `src/adapters/gradient_decomposition.py` | TaylorContribution, AlternatingTrainer, OverlapConsistency | 3 |
+| `src/adapters/lifecycle_flow.py` | LifecycleFlow velocity field, FlowMatchingTrainer | 3 |
+| `src/adapters/differentiable_lifecycle.py` | Unified differentiable morph optimizer | 3 |
+| `src/adapters/weight_flow.py` | WeightFlowField, WeightFlowTrainer | 3 |
+| `src/adapters/base.py` | LowRankAdapter, AdapterWrappedLinear, adapt_linear_layer | 1 |
+| `src/adapters/__init__.py` | Exports all adapter classes (118 batch + 10 StreamFusion) | 1+2+3 |
 
-### Adapter Files (29 + 18 = 47 total)
+### Adapter Architecture Map (Phase 1+2)
 
-**V1/V2 originals**: `base.py`, `bora.py`, `dora.py`, `doran.py`, `dvora.py`, `edora.py`, `edoran.py`, `ebora.py`, `eboran.py`, `bvoran.py`, `ebvoran.py`, `bvora.py`, `qadora.py`, `qdora.py`
+```
+Base LowRankAdapter
+├── No magnitude: PlainLoRA
+├── Column magnitude: DoRA
+│   ├── +VE: DVoRA
+│   └── +LayerNorm: DoRAN
+│       ├── + group mag: EDoRA → EDoRAN
+│       ├── + AFA flag: GenDDoRAN variants (32)
+│       └── + bidirectional: BVoRAN → GenBVoRAN variants (64)
+│           ├── + SR flag: SRBVoRAN
+│           ├── + Knit flag: KnitBVoRAN (OOM)
+│           └── + cycling: CycledBoRAN
+├── Cycling (axis-cycling): CycledAxialBoRA
+├── Cycling (diag-cycling): CycledDiagLoRA
+├── Diagonal magnitude: DiagLoRAN
+└── Configurable angles: MultiAngleLoRAN
+```
 
-**V3 spec variants**: `afa_bvoran.py`, `afa_ebvoran.py`, `bvoran_ga.py`, `ebvoran_ga.py`, `eva_bvoran.py`, `eva_ebvoran.py`, `sr_bvoran.py`, `esr_bvoran.py`, `se_bvoran.py`, `ese_bvoran.py`, `knit_bvoran.py`, `knit_ebvoran.py`, `b_pveran.py`, `eb_pveran.py`, `bv_auroran.py`, `ebv_auroran.py`
+### StreamFusion Architecture Map (Phase 3)
 
-**V4 combo variants** (in `combo_adapters.py`): All 18 hybrids — `afa_bvoran_ga`, `afa_ebvoran_ga`, `knit_bvoran_ga`, `knit_ebvoran_ga`, `sr_bvoran_ga`, `sr_ebvoran_ga`, `eva_bvoran_ga`, `eva_ebvoran_ga`, `sr_afa_bvoran`, `sr_afa_ebvoran`, `sr_afa_bvoran_ga`, `sr_afa_ebvoran_ga`, `knit_afa_bvoran_ga`, `knit_afa_ebvoran_ga`, `knit_sr_afa_bvoran_ga`, `knit_sr_afa_ebvoran_ga`, `knit_sr_afa_eva_bvoran_ga`, `knit_sr_afa_eva_ebvoran_ga`
-
----
-
-## 2. Architectural Discovery
-
-- **Qwen3.5-0.8B** (797M params) — 24 layers, 2048 hidden dim, 8192 intermediate, 32 heads
-- **Adapter rank**: r=8, α=8,0 dropout=0.0
-- **Trainable params**: ~0.58M–1.22M (0.07%–0.15% of total)
-- **Memory**: ~3263 MB peak for non-Knit, ~3719 MB for Knit
-- **Loss range**: 0.1463 (best) to 0.7515 (worst)
-- **PPL range**: 1.16 (best) to 2.12 (worst)
-
----
-
-## 3. All Experiments
-
-### 3.1 Full 47-Variant Ranking
-
-| # | Variant | Loss | PPL | Tok/s | Knit? |
-|---|---------|------|-----|-------|-------|
-| 1 | sr_afa_bvoran | 0.1463 | 1.16 | 32.8 | |
-| 2 | afa_bvoran | 0.1537 | 1.17 | 30.1 | |
-| 3 | sr_afa_ebvoran_ga | 0.1602 | 1.17 | 32.6 | |
-| 4 | bvoran_ga | 0.1642 | 1.18 | 27.7 | |
-| 5 | afa_ebvoran | 0.1687 | 1.18 | 30.0 | |
-| 6 | eva_ebvoran_ga | 0.1697 | 1.18 | 27.0 | |
-| 7 | sr_bvoran | 0.1812 | 1.20 | 28.2 | |
-| 8 | afa_bvoran_ga | 0.1861 | 1.20 | 35.6 | |
-| 9 | sr_afa_ebvoran | 0.1874 | 1.21 | 30.9 | |
-| 10 | ebvoran_ga | 0.2085 | 1.23 | 40.0 | |
-| 11 | eva_ebvoran | 0.2277 | 1.26 | 30.5 | |
-| 12 | sr_afa_bvoran_ga | 0.2320 | 1.26 | 30.4 | |
-| 13 | knit_bvoran | 0.2482 | 1.28 | 0.0 | ✓ |
-| 14 | knit_sr_afa_bvoran_ga | 0.2572 | 1.29 | 20.1 | ✓ |
-| 15 | knit_afa_ebvoran_ga | 0.2613 | 1.30 | 0.0 | ✓ |
-| 16 | knit_ebvoran_ga | 0.2695 | 1.31 | 0.0 | ✓ |
-| 17 | esr_bvoran | 0.2715 | 1.31 | 39.9 | |
-| 18 | knit_afa_bvoran_ga | 0.2765 | 1.32 | 0.0 | ✓ |
-| 19 | sr_bvoran_ga | 0.2913 | 1.34 | 41.8 | |
-| 20 | knit_ebvoran | 0.3084 | 1.36 | 0.0 | ✓ |
-| 21 | knit_sr_afa_ebvoran_ga | 0.3171 | 1.37 | 0.0 | ✓ |
-| 22 | sr_ebvoran_ga | 0.3286 | 1.39 | 41.0 | |
-| 23 | ese_bvoran | 0.3288 | 1.39 | 27.4 | |
-| 24 | eva_bvoran | 0.3359 | 1.40 | 37.9 | |
-| 25 | afa_ebvoran_ga | 0.3473 | 1.42 | 34.6 | |
-| 26 | eva_bvoran_ga | 0.3715 | 1.45 | 40.1 | |
-| 27 | knit_bvoran_ga | 0.3903 | 1.48 | 0.0 | ✓ |
-| 28 | bvora | 0.4006 | 1.49 | 38.3 | |
-| 29 | doran | 0.4154 | 1.51 | 44.1 | |
-| 30 | ebora | 0.4203 | 1.52 | 43.3 | |
-| 31 | dora | 0.4364 | 1.55 | 47.1 | |
-| 32 | edoran | 0.4466 | 1.56 | 49.4 | |
-| 33 | ebvoran | 0.4483 | 1.57 | 37.6 | |
-| 34 | dvora | 0.4514 | 1.57 | 36.5 | |
-| 35 | knit_sr_afa_eva_bvoran_ga | 0.4523 | 1.57 | 20.3 | ✓ |
-| 36 | bvoran | 0.4632 | 1.59 | 36.9 | |
-| 37 | knit_sr_afa_eva_ebvoran_ga | 0.4670 | 1.60 | 0.0 | ✓ |
-| 38 | edora | 0.4746 | 1.61 | 45.0 | |
-| 39 | eboran | 0.4755 | 1.61 | 41.8 | |
-| 40 | bora | 0.4764 | 1.61 | 42.2 | |
-| 41 | qadora | 0.5104 | 1.67 | 38.4 | |
-| 42 | se_bvoran | 0.5117 | 1.67 | 27.4 | |
-| 43 | eb_pveran | 0.5657 | 1.76 | 24.3 | |
-| 44 | qdora | 0.6369 | 1.89 | 45.7 | |
-| 45 | b_pveran | 0.6665 | 1.95 | 30.6 | |
-| 46 | ebv_auroran | 0.7493 | 2.12 | 23.6 | |
-| 47 | bv_auroran | 0.7515 | 2.12 | 33.4 | |
-
-### 3.2 Deployable (No-Knit) Ranking (37 variants)
-
-| # | Variant | Loss | PPL | Tok/s | Params |
-|---|---------|------|-----|-------|--------|
-| 1 | sr_afa_bvoran | 0.1463 | 1.16 | 32.8 | 1,222,656 |
-| 2 | afa_bvoran | 0.1537 | 1.17 | 30.1 | 1,222,656 |
-| 3 | sr_afa_ebvoran_ga | 0.1602 | 1.17 | 32.6 | 1,155,318 |
-| 4 | bvoran_ga | 0.1642 | 1.18 | 27.7 | 1,222,656 |
-| 5 | afa_ebvoran | 0.1687 | 1.18 | 30.0 | 1,155,318 |
-| 6 | eva_ebvoran_ga | 0.1697 | 1.18 | 27.0 | 1,155,318 |
-| 7 | sr_bvoran | 0.1812 | 1.20 | 28.2 | 1,222,656 |
-| 8 | afa_bvoran_ga | 0.1861 | 1.20 | 35.6 | 1,222,656 |
-| 9 | sr_afa_ebvoran | 0.1874 | 1.21 | 30.9 | 1,155,318 |
-| 10 | ebvoran_ga | 0.2085 | 1.23 | 40.0 | 1,155,318 |
-
-### 3.3 Key Findings
-
-- **SR + AFA + BVoRA (#1)** is the best combination — Structured Regularization smooths the AFA init
-- **AFA-based variants** dominate top 6 — AFA (activation-free adapters) init is critical
-- **GA (gradient align)** on EBVoRAN base performs well (#3, #6, #10)
-- **Knit variants** cluster mid-table (13–21) but 0 tok/s at generation (KV cache mismatch)
-- **Pure BVoRA/EBVoRAN** are mid-pack (#28, #33) — hybrids outperform base forms
-- **Aurora-based variants** are worst (#46–47) — underperform in this setup
-- **DoRA/dora** forms are solid (#29–38) but not top-tier
-
----
-
-## 4. All Scripts
-
-| Script | Purpose | Key Params |
-|--------|---------|------------|
-| `run_exp.py` | Main experiment: load model, inject adapter, train 50 steps, test speed | `--r 8 --alpha 8.0 --batch-size 1 --max-steps 50 --output results.json --variants ...` |
-| `gen_combo.py` | Generate `combo_adapters.py` from technique flag table | Outputs to `src/adapters/combo_adapters.py` |
-| `src/adapters/base.py` | `LowRankAdapter` base class | `init_adapter()`, `forward()`, `trainable_params()` |
-| `src/training/trainer.py` | Training loop | AdamW, LR 2e-4, 50 steps, cross-entropy loss |
-| `src/evaluation/benchmark.py` | Inference speed measurement | generate() call timing |
-
----
-
-## 5. Roadmap
-
-| Priority | Item | Status |
-|----------|------|--------|
-| ★ | **Session compiled** — all 47 variants trained and ranked | Completed |
-| ★ | **Deployable ranking** — 37 variants (no Knit) isolated | Completed |
-| Next | Final analysis paper / report | Pending |
-| Next | Investigate top-5 variants more deeply (more steps, multi-batch) | Pending |
-| Next | Fix Knit KV-cache issue for inference speed | Pending |
-| Later | Train top variants on larger models (Qwen3.5-4B+) | Deferred |
-
----
-
-## 6. All Commands
-
-```bash
-# Train all 18 combo variants
-python3 run_exp.py --variants afa_bvoran_ga afa_ebvoran_ga knit_bvoran_ga knit_ebvoran_ga sr_bvoran_ga sr_ebvoran_ga eva_bvoran_ga eva_ebvoran_ga sr_afa_bvoran sr_afa_ebvoran sr_afa_bvoran_ga sr_afa_ebvoran_ga knit_afa_bvoran_ga knit_afa_ebvoran_ga knit_sr_afa_bvoran_ga knit_sr_afa_ebvoran_ga knit_sr_afa_eva_bvoran_ga knit_sr_afa_eva_ebvoran_ga --max-steps 50 --r 8 --alpha 8.0 --batch-size 1 --output results_v4_combo.json
-
-# Generate combo adapter classes
-python3 gen_combo.py
-
-# Verify imports
-python3 -c "from src.adapters.combo_adapters import *; print('OK')"
-
-# Merge rankings (Python inline script)
-python3 -c "import json; v3=json.load(open('results_v3_final.json'))['results']; v4=json.load(open('results_v4_combo.json'))['results']; all=v3+v4; sorted=... (see merge script in session)"
+```
+StreamFusionLoRA
+├── PerceiverFusion bottleneck
+│   ├── Cross-attend: latents ↔ expert embeddings
+│   ├── Self-attend: latents ↔ latents
+│   └── Output cross-attend: query → fused delta
+├── Expert variants (HybridStreamExpert)
+│   ├── Plain (B·A), DoRA (magnitude-norm), BoRA (bidirectional), VeRa (vectors)
+│   ├── AFA (annealed tanh), AUR (autoencoder MLP), PERA (polynomial)
+│   └── Soft flags: continuous [0,1] blending for smooth morphing
+├── Flow matching over weights
+│   ├── WeightFlowField (Perceiver bottleneck over weight space)
+│   ├── WeightDiffusion (separate noise + velocity heads)
+│   ├── Closed-form SVD optimal target
+│   └── Stagnation penalty
+├── MetaController (transformer over adapter history)
+│   ├── Suggests flags + poly_order + morph_rate per segment
+│   └── Evolution-strategy optimization
+├── Dynamic K regulation
+│   ├── Entropy-thresholded (drop high-entropy latents)
+│   └── Adaptive growth (expand when reasoning stalls)
+└── Gradient decomposition
+    ├── TaylorContribution (per-rank-1 loss contribution)
+    ├── AlternatingTrainer (gradient isolation via masking)
+    └── OverlapConsistency (MSE over overlapping components)
 ```
 
 ---
 
-## 7. Key Numbers
+## 2. Phase 1+2 Experiments (Batch LoRA Variants)
 
-| Metric | Value |
-|--------|-------|
-| Total variants | 47 |
-| Deployable (no Knit) | 37 |
-| Best loss | 0.1463 (sr_afa_bvoran) |
-| Best PPL | 1.16 (sr_afa_bvoran) |
-| Best speed | 49.4 tokens/s (edoran) |
-| Best params efficiency | 0.07% (dora/edora/doran) |
-| Knit variants with 0 speed | 10 out of 10 |
-| Total experiment time (18 variants) | ~30 min |
-| Model | Qwen3.5-0.8B (797M params) |
-| Peak memory | ~3263 MB (non-Knit), ~3719 MB (Knit) |
-| Training steps per variant | 50 |
-| Optimizer | AdamW (lr=2e-4) |
+### 2.1 Complete Combined Ranking (34 unique variants, SmolLM2-135M)
 
----
+| # | Variant | Eval Loss | PPL | Norm? | Notes |
+|---|---------|-----------|-----|-------|-------|
+| 1 | `plain_lora` | 3.06 | **21** | ❌ | Best — but on random base weights |
+| 2 | `edoran` (gs=128) | 7.24 | **1,394** | ✅ | Best magnitude variant |
+| 3 | `edoran` (gs=64) | 7.24 | 1,401 | ✅ | |
+| 4 | `doran` | 7.31 | 1,492 | ✅ | |
+| 5 | `gend_afa_eva_doran` | 7.34 | 1,547 | ✅ | Best gen'd norm variant |
+| 6-18 | All `gend_*doran*` | 7.35-7.43 | 1,561-1,689 | ✅ | Flag combos (tight cluster) |
+| 19 | `cycled_diag_lora` | 7.58 | 1,952 | ❌ | Cycled diag/anti bands |
+| 20 | `cycled_axial_loran` | 7.86 | 2,581 | ❌ | Axis-cycling |
+| 21 | `gend_cycled_axial_boran` | 7.91 | 2,718 | ✅ | Gend axis-cycling + norm |
+| 22 | `cycled_bvoran` | 8.15 | 3,477 | ✅ | Branch-cycling |
+| 23 | `gend_cycled_boran` | 8.32 | 4,108 | ✅ | Gend branch-cycling + norm |
+| 24 | `diag_loran` | 10.01 | 22,292 | ✅ | Bidirectional diag |
+| 25 | `gend_cycled_axial_bora` | 11.90 | 147K | ❌ | No-norm axis-cycling |
+| 26-34 | All no-norm variants | 13.3-13.5 | 600K-730K | ❌ | No norm cluster |
 
-## 8. Design Patterns
+### 2.2 EDoRA Group Size Sweep (SmolLM)
 
-- **Model reuse**: Load model once, save/restore adapter weights between variants (prevents OOM)
-- **Combo generator**: Flag matrix → class code generator (N combinatorial classes from 2 base types × 5 technique flags)
-- **Knit KV mismatch**: Knit modifies KV cache shape at inference; `model.generate()` crashes with "Expected size 2 but got size 64"
-- **Centralized imports**: All combo variant imports in `from __future__ import annotations` at file top
+| Group Size | Eval Loss | PPL |
+|-----------|-----------|-----|
+| 64 | 7.24 | 1,401 |
+| **128** | **7.24** | **1,394** ← best |
+| 256 | 7.36 | 1,567 |
+| 512 | 7.36 | 1,568 (default) |
+| 1024 | 7.75 | 2,324 |
 
----
+### 2.3 Phase 1+2 Key Findings
 
-## 9. Appendix: Failures
-
-| Issue | Root Cause | Status |
-|-------|-----------|--------|
-| Knit variants fail at generation | KV cache shape mismatch — Knit inserts VE param into attention output, changing KV cache head dim | Unresolved |
-| `from __future__` in class bodies | `gen_combo.py` placed per-class imports inside class definitions | Fixed |
-| `gradient_align_init` missing `.detach()` | GA forward returned non-detached tensor; `.detach()` added to `x` | Fixed |
-| OOM when loading model per variant | Model re-loading for each variant exhausted GPU memory | Fixed via save/restore pattern |
-
----
-
-## 10. Cross-Project References
-
-- Parent: `~/Projects/Personal/AI/Latent_Reasoning` — contains the Python venv (`qwen3_trm_env`)
-- HuggingFace cache: `~/.cache/huggingface/hub/models--Qwen--Qwen3.5-0.8B/`
-- Related: AFA (https://arxiv.org/abs/2404.12896), GA (gradient alignment init), SR (spectral regularization), Knit (KV-cache injection), EVA (eigenvalue-based attention)
+- **LayerNorm dominates**: 6-point loss gap between norm and no-norm (7.3 vs 13.4)
+- **Plain LoRA beats magnitude on random weights** (PPL 21 vs 1,394) — magnitude needs pretrained
+- **Cycling**: axis-cycling > branch-cycling, but cycling < static+norm
+- **EDoRA**: smaller groups (64-128) beat larger (512-1024)
+- **KnitLoRA**: OOM on all model scales — forsaken
 
 ---
 
-## 11. Quick Resume
+## 3. Phase 3 Experiments (StreamFusion / Weight Flow)
 
-### Next start command
+### 3.1 Streaming Continual Learning (Qwen3.5-2B)
+
+| Segments | Train PPL | Eval PPL | Experts |
+|----------|-----------|----------|---------|
+| 1 | 5,920 | 3,203 | 1 |
+| 3 | 715 | 1,395 | 3 |
+| 5 | 442 | 1,193 | 5 |
+| 7 | 814 | 1,092 | 7 |
+| 9 | 347 | **698** | 9 |
+
+StreamFusion improves across segments — 78% eval PPL reduction from seg 1 to seg 9.
+
+### 3.2 Expert Variant Sweep (11 variants × 3 seeds × 5 segments)
+
+| Rank | Variant | Eval PPL (seg 5) | vs Plain |
+|------|---------|-----------------|----------|
+| 1 | **BVA** (bi+vec+norm) | 1,289 | -5.0% |
+| 2 | dora | 1,293 | -4.6% |
+| 3 | plain | 1,303 | baseline |
+| 4 | AFA (annealed tanh) | 1,300 | -0.2% |
+| 5 | PERA (polynomial) | 1,309 | +0.5% |
+
+### 3.3 Weight Flow Matching (Qwen3.5-0.8B)
+
+| Model | Training Data | Train Flow Loss | Eval vs Zero |
+|-------|--------------|-----------------|--------------|
+| WeightFlowField | 15 traj (arxiv) | ~0 | 2.8925 ≈ 2.8928 |
+| + gradient conditioning | 15 traj | ~0 | 2.8919 ≈ 2.8928 |
+| WeightDiffusion + opt target | 70 traj (5 sources) | flow~0, opt~2e-5 | 2.8928 = 2.8928 |
+| + stagnation penalty | 70 traj | flow~0, stag active | in progress |
+
+**Key finding**: Flow matching perfectly learns training dynamics (MSE ~0) but predicts zero on test data. Conditioning (mean hidden state + gradient) is information-theoretically insufficient to determine the correct weight update for unseen data.
+
+### 3.4 Cosine Similarity: Flow vs SVD vs SGD
+
+| Comparison | Cosine Similarity | Meaning |
+|-----------|------------------|---------|
+| SGD update vs SVD optimal | -0.003 | SGD does NOT follow SVD direction |
+| Flow velocity vs SVD optimal | 0.009 | Flow learned SGD, not SVD |
+| Flow velocity vs SGD update | 0.001→0.008 | Flow ≈ zero vector |
+
+### 3.5 Diffusion Denoising Analysis
+
+**Finding**: Denoising MSE stays at 1.0 (random guess) even with proper weight normalization and separate output heads. Root cause: clean adapter weights are random (initialized randomly, SGD shifts slightly). There is no low-dimensional manifold for denoising to learn.
+
+**Recommendation**: Drop diffusion denoising. Focus on flow matching + closed-form SVD optimal target.
+
+### 3.6 Full Pipeline Evaluation
+
+| Model Configuration | Flow Eval PPL | Zero Eval PPL | Flow < Zero? |
+|--------------------|--------------|---------------|--------------|
+| 12 traj, no gradient | 2.8925 | 2.8928 | 0/5 |
+| 12 traj + gradient conditioning | 2.8919 | 2.8928 | 4/5 (marginal) |
+| 70 traj + gradient + optimal target | 2.8928 | 2.8928 | 0/5 |
+
+All models match zero. The wall is conditioning insufficiency.
+
+---
+
+## 4. Key Cross-Cutting Findings
+
+### 4.1 What Works
+- **StreamFusion online training**: Eval PPL drops 78% across segments via expert accumulation
+- **Flow matching on weight trajectories**: Perfect training fit (MSE ~0)
+- **Closed-form SVD**: 29.8% loss reduction in a single step — the optimal update direction
+- **Entropy-thresholded dynamic K**: Correctly drops inattentive latents
+- **Adaptive growth**: Expands from K_min when reasoning stalls
+- **Stagnation penalty**: Increases velocity norm 1615× (forces non-zero predictions)
+- **HybridStreamExpert soft flags**: Continuous [0,1] blending for smooth architectural morphing
+
+### 4.2 What Doesn't Work
+- **Diffusion denoising on weights**: MSE stuck at 1.0 — weights are unstructured
+- **Weight generalization to test data**: All models predict zero on unseen data
+- **ES evolution**: Population variance too low (0.03 after 5 gens) — needs more data
+- **DDIM denoising**: Amplifies errors, produces worse results than zero initialization
+- **KnitLoRA**: OOM on all model scales — forsaken
+
+### 4.3 The Core Bottleneck
+The fundamental issue across all weight flow models: **conditioning insufficiency**. The mean hidden state + gradient (5120-dim) doesn't contain enough information to determine the correct weight update for unseen data. The model correctly learns that "predict zero" minimizes held-out MSE.
+
+**Solutions identified**:
+1. Richer conditioning (full hidden state sequence, not mean)
+2. Closed-form SVD as primary target (well-defined for any input)
+3. Shift to latent reasoning (thoughts have structure; weights don't)
+
+---
+
+## 5. Infrastructure Details
+
+### Memory Optimization (Phase 1)
+- AdapterWrappedLinear frees base_linear.weight after cloning (saves ~400MB)
+- saved_weights stored on CPU
+- Gradient checkpointing enabled for all runs
+
+### Key Commands
+
 ```bash
-cd ~/Projects/Personal/AI/RankAdaptation
-source ~/Projects/Personal/AI/Latent_Reasoning/qwen3_trm_env/bin/activate
+# Run batch experiment
+python3 run_exp.py --variants dora edora --r 8 --alpha 8.0 --batch-size 1 --max-steps 200
+
+# Run streaming continual learning
+python3 run_stream_fusion.py --n-segments 10 --steps-per-segment 20 --r 8
+
+# Run expert variant sweep
+python3 run_sweep_analysis.py
+
+# Run weight flow training
+python3 run_weight_flow_train.py
+
+# Run weight flow evaluation
+python3 run_weight_flow_eval.py
+
+# Run diffusion flow training (diverse data)
+python3 run_diffusion_flow_train.py
+
+# Run diffusion flow evaluation
+python3 run_diffusion_flow_eval.py
+
+# Run flow vs SVD vs SGD comparison
+python3 run_comparison.py
 ```
 
-### Key numbers
-- **Best variant**: `sr_afa_bvoran` — loss 0.1463, PPL 1.16, 32.8 tok/s
-- **Top deployable**: `sr_afa_bvoran` (1.16 PPL, no Knit)
-- **Total ranked**: 47 variants (37 deployable)
+### Known Issues
+- Knit variants OOM on all model scales
+- MultiAngleLoRA outputs NaN (empty band issue)
+- Weight flow models don't generalize to test data (conditioning insufficiency)
+- Batch size vs throughput: SmolLM too small to saturate GPU
 
-### What to continue
-1. Deep-dive on top-5 variants (longer training, multi-batch eval)
-2. Fix Knit KV-cache issue
-3. Write up results paper
-4. Test top variants on larger model (Qwen3.5-4B)
-5. Explore SR+AFA+GA combination on EBVoRAN base (top-3 uses this pattern)
+---
 
-### Result files
-- `results_final_47_ranking.json` — all variants ranked
-- `results_final_no_knit.json` — deployable only
-- `results_final_deployable_ranking.json` — 37 variants for production consideration
+## 6. Literature Landscape
+
+### Flow Matching / Diffusion for Weights
+| Paper | Year | Mechanism |
+|-------|------|-----------|
+| Doc-to-LoRA | 2026 | Hypernetwork generates LoRA weights from prompts |
+| HyperAdaLoRA | 2025 | Attention-based SVD parameter generation |
+| P-diff | 2024 | Diffusion for parameter generation |
+| **Your gap**: Flow matching over weight trajectories | — | Predict weight velocity via Perceiver bottleneck, conditioned on data |
+
+### Continual / Online LoRA
+| Paper | Year | Mechanism |
+|-------|------|-----------|
+| Online-LoRA | 2025 (WACV) | Task-free online continual learning |
+| Temp-Lora | 2024 (COLM) | Temporary LoRA trained during generation |
+| C-LoRA | 2025 | Routing matrix for sequential tasks |
+| **StreamFusion-LoRA** | 2026 | PerceiverFusion bottleneck + TAF routing + expert pool |
+
+### LoRA Variants
+| Paper | Year | Mechanism |
+|-------|------|-----------|
+| DoRA | 2024 (NeurIPS) | Magnitude-direction decomposition |
+| AdaLoRA | 2023 (ICLR) | SVD param., prune singular values |
+| VeRa | 2025 | Vector-based eigendirections |
+| SRLoRA | 2025 | Dynamic subspace recomposition |
+| **Your variants**: AFA, AUR, PERA | 2026 | Annealed tanh, autoencoder MLP, polynomial expansion |
+
+---
+
+## 7. Tagged Milestones (Git)
+
+| Tag | Description |
+|-----|-------------|
+| v0.1.0-streamfusion | PerceiverFusion + TAF routing + expert pool |
+| v0.2.0-experts | DoRA, BoRA, VeRa + HybridStreamExpert (8 flags) |
+| v0.3.0-orthodox | AFA, AUR, PERA + 20-variant sweep |
+| v0.4.0-decomposition | TaylorContribution, AlternatingTrainer, OverlapConsistency |
+| v0.5.0-analysis | Multi-seed multi-segment analysis framework |
+| v0.6.0-evolution | MetaController (ES over adapter lifecycles) |
+| v0.7.0-lifecycle | PERA→BVA morphing schedule |
+| v0.8.0-flowmatching | Flow matching over flags (architecture space) |
+| v0.9.0-unified | Differentiable lifecycle optimizer |
+| v0.10.0-weightflow | Flow matching over weights (synthetic) |
+| v0.10.1-flowweights | FlowWeightExpert + closed-form LoRA analysis |
+| v0.11.0-realtraj | Real LM trajectory collection (Qwen3.5-0.8B) |
+| v0.12.0-eval | Full evaluation: flow ≈ zero on test data |
+| v0.12.1-realeval | Overfitting confirmed: 300 samples / 11M params |
+| v0.13.0-diffusion | WeightDiffusion (flow + denoising + flag conditioning) |
+| v0.14.0-diversetrain | 70 trajectories, 5 sources, 4275 augmented |
+| v0.15.0-closedform | Closed-form SVD training target |
+| v0.16.0-deliverables | Dynamic K design, meta-synthesis skill, MCP proposals |
+| v0.17.0-dynamick | Entropy-thresholded + adaptive growth implemented |
+| v0.18.0-denoising | Proper denoising analysis: flow works, denoising doesn't |
+
+---
+
+## 8. Quick Resume
+
+### Next experiments to run
+
+```bash
+# 1. Stagnation-penalty training (in progress)
+#    Already running with λ_stag=0.2 on 70 trajectories
+
+# 2. Evaluate stagnation model
+python3 run_diffusion_flow_eval.py
+
+# 3. SelectiveLoRA implementation (from Phase 2 roadmap)
+#    Create with: warmup → score → freeze low → continue → periodic rescore
+
+# 4. Validate top-5 Phase 2 variants on Qwen3.5-0.8B
+python3 run_exp.py --variants edoran doran gend_afa_eva_doran --model-path ...qwen3.5-0.8b...
+
+# 5. Full latent reasoning engine prototype
+```
+
+### Key Numbers
+- Batch: Best magnitude variant: edoran gs=128, PPL 1,394 (Phase 2)
+- StreamFusion: 78% eval PPL reduction across 9 segments (Phase 3)
+- Weight flow: Flow MSE ~0 on training, ≈zero on test — conditioning wall
+- SVD closed-form: 29.8% loss reduction in one step
+- GPU: 7.6GB — enough for Qwen3.5-0.8B (batch=1) or Qwen3.5-2B (batch=1, gradient ckpt)
+- Diffusion training: ~60 min for 70 trajectories, 15 epochs
+- Model sizes: weight_flow_model.pt = 10.6MB, diffusion_weight_flow.pt = 12MB
+
+### Architecture Decisions
+1. **Magnitude needs pretrained weights** — Phase 1 finding confirmed
+2. **Flow matching works for training memorization, not generalization** — Phase 3 finding
+3. **Denoising is pointless on random weights** — they have no manifold
+4. **Closed-form SVD is the correct target** — 29.8% improvement in one step
+5. **Stagnation penalty forces non-zero predictions** — 1615× velocity increase
+
+### Open Research Questions
+1. Can richer conditioning (full hidden states, not mean) unlock weight generalization?
+2. Can the SVD optimal target alone train a weight flow model (no SGD trajectories)?
+3. Does latent reasoning (thought trajectories, not weight trajectories) have enough structure for diffusion to work?
+4. Can the MetaController + WeightDiffusion composition learn end-to-end lifecycles?

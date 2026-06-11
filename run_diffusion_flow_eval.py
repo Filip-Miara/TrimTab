@@ -76,10 +76,17 @@ def main():
 
     # Load diffusion model
     flow = WeightDiffusion(n_weights, d_latent=64, n_latents=16, d_ctx=d_ctx)
-    flow.load_state_dict(torch.load("diffusion_weight_flow.pt", map_location="cpu"))
+    sd = torch.load("diffusion_weight_flow.pt", map_location="cpu")
+    # Handle architecture migration: old single decode → new separate decode_noise/decode_flow
+    if "decode.weight" in sd and "decode_noise.weight" not in sd:
+        sd["decode_noise.weight"] = sd["decode.weight"][:1]   # first row
+        sd["decode_noise.bias"] = sd["decode.bias"][:1]
+        sd["decode_flow.weight"] = sd["decode.weight"][1:]    # second row
+        sd["decode_flow.bias"] = sd["decode.bias"][1:]
+        del sd["decode.weight"], sd["decode.bias"]
+    flow.load_state_dict(sd, strict=False)
     flow.to(DEVICE).eval()
-    trainer = DiffusionFlowTrainer(flow, device=DEVICE)
-    print(f"Diffusion model loaded")
+    print(f"Diffusion model loaded (weights: {sum(p.numel() for p in flow.parameters()):,})")
 
     print(f"\nLoading {N_TEST} test texts...")
     texts = load_test_texts(N_TEST, 15)
