@@ -152,22 +152,25 @@ class DiffusionFlowTrainer:
     at different noise levels, giving O(K × N) training samples from N trajectories.
     """
 
-    def __init__(self, model: WeightDiffusion, lr: float = 1e-3, device: str = "cpu"):
+    def __init__(self, model: WeightDiffusion, lr: float = 1e-3, device: str = "cpu",
+                 lambda_diff: float = 1.0, lambda_flow: float = 0.1, lambda_optimal: float = 0.5):
         self.model = model.to(device)
         self.device = device
         self.opt = torch.optim.AdamW(self.model.parameters(), lr=lr)
-        self.lambda_diff = 1.0
-        self.lambda_flow = 0.1
+        self.lambda_diff = lambda_diff
+        self.lambda_flow = lambda_flow
+        self.lambda_optimal = lambda_optimal
 
     def train_step(
         self,
-        clean_weights: torch.Tensor,  # (B, N)
-        next_weights: torch.Tensor,   # (B, N) — for flow target
-        flags: torch.Tensor,          # (B, N_FLAGS)
-        data_ctx: torch.Tensor,       # (B, d_ctx)
-        t_noise: torch.Tensor,        # (B, 1) — random noise levels
-        t_flow: torch.Tensor,         # (B, 1) — flow time
-    ) -> tuple[float, float, float]:
+        clean_weights: torch.Tensor,
+        next_weights: torch.Tensor,
+        flags: torch.Tensor,
+        data_ctx: torch.Tensor,
+        t_noise: torch.Tensor,
+        t_flow: torch.Tensor,
+        optimal_target: torch.Tensor | None = None,
+    ) -> tuple[float, float, float, float]:
         noisy, noise = add_noise(clean_weights, t_noise)
         noisy, noise = noisy.to(self.device), noise.to(self.device)
 
@@ -178,16 +181,22 @@ class DiffusionFlowTrainer:
 
         target_velocity = (next_weights - clean_weights).to(self.device)
 
-        loss_diff = F.mse_loss(noise_pred.squeeze(-1), noise)
-        loss_flow = F.mse_loss(velocity_pred.squeeze(-1), target_velocity)
+        loss_diff = F.mse_loss(noise_pred, noise)
+        loss_flow = F.mse_loss(velocity_pred, target_velocity)
         loss = self.lambda_diff * loss_diff + self.lambda_flow * loss_flow
+
+        if optimal_target is not None and self.lambda_optimal > 0:
+            loss_opt = F.mse_loss(velocity_pred, optimal_target.to(self.device))
+            loss = loss + self.lambda_optimal * loss_opt
+        else:
+            loss_opt = 0.0
 
         self.opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.opt.step()
 
-        return loss.item(), loss_diff.item(), loss_flow.item()
+        return loss.item(), loss_diff.item(), loss_flow.item(), loss_opt if isinstance(loss_opt, float) else loss_opt.item()
 
     @torch.no_grad()
     def generate_weights(

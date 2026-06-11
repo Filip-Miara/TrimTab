@@ -25,99 +25,101 @@ MODEL_PATH = os.path.join(
 )
 DEVICE = "cuda"
 RANK = 8
-N_TRAJ = 40  # 40 trajectories × 3 noise levels × 20 steps ≈ 2400 training samples
+N_TRAJ = 60  # 60 trajectories × 5 noise levels × 20 steps ≈ 6000 training samples
 STEPS_PER_TRAJ = 20
 
 
 def load_diverse_texts(n_total: int) -> list[str]:
-    """Load a diverse mix of texts from multiple datasets."""
+    """Load a diverse mix of texts from multiple datasets with correct IDs."""
     np.random.seed(42)
     texts = []
     sources = []
+    cache = "/run/media/filip/B522-875D/Datasets/hub"
 
-    # 1. Wikipedia (general knowledge)
+    # 1. Arxiv (scientific)
     try:
-        wiki = load_dataset("wikipedia", "20220301.simple", split="train", cache_dir=None)
-        wiki_texts = [r["text"][:2000] for r in wiki if len(r.get("text", "")) > 500]
-        np.random.shuffle(wiki_texts)
-        n = max(1, n_total // 6)
-        texts.extend(wiki_texts[:n])
-        sources.extend(["wiki"] * n)
-        print(f"  Wikipedia: {n} texts")
-    except Exception as e:
-        print(f"  Wikipedia: FAILED ({e})")
-
-    # 2. Arxiv (scientific)
-    try:
-        parq_dir = "/run/media/filip/B522-875D/Datasets/hub/datasets--ccdv--arxiv-summarization/snapshots/240aaf1a969b3f8cd0ade6986bfad0cd730ee288/section"
         import pyarrow.parquet as pq
+        parq_dir = "/run/media/filip/B522-875D/Datasets/hub/datasets--ccdv--arxiv-summarization/snapshots/240aaf1a969b3f8cd0ade6986bfad0cd730ee288/section"
         arxiv_texts = []
-        for pf in sorted(os.listdir(parq_dir))[:3]:
+        for pf in sorted(os.listdir(parq_dir))[:5]:
             tbl = pq.read_table(os.path.join(parq_dir, pf), columns=["article"])
             for art in tbl.column("article"):
                 t = art.as_py()
                 if len(t) > 500:
                     arxiv_texts.append(t[:2000])
-        n = max(1, n_total // 6)
-        arxiv_texts = arxiv_texts[:n]
+                    if len(arxiv_texts) >= n_total // 2:
+                        break
+            if len(arxiv_texts) >= n_total // 2:
+                break
         texts.extend(arxiv_texts)
         sources.extend(["arxiv"] * len(arxiv_texts))
         print(f"  Arxiv: {len(arxiv_texts)} texts")
     except Exception as e:
         print(f"  Arxiv: FAILED ({e})")
 
-    # 3. Dolly (instruction)
-    try:
-        dolly = load_dataset("databricks/databricks-dolly-15k", split="train", cache_dir=None)
-        dolly_texts = []
-        for r in dolly:
-            t = f"{r.get('instruction', '')}\\n{r.get('response', '')}"
-            if len(t) > 500:
-                dolly_texts.append(t[:2000])
-        np.random.shuffle(dolly_texts)
-        n = max(1, n_total // 6)
-        texts.extend(dolly_texts[:n])
-        sources.extend(["dolly"] * n)
-        print(f"  Dolly: {n} texts")
-    except Exception as e:
-        print(f"  Dolly: FAILED ({e})")
+    # 2. Dolly (instruction) — confirmed working
+    for name, ds_name, split, text_fn, n_max in [
+        ("Dolly", "databricks/databricks-dolly-15k", "train",
+         lambda r: f"{r.get('instruction', '')}\n{r.get('response', '')}", n_total // 3),
+        ("Shakespeare", "Trelis/tiny-shakespeare", "train",
+         lambda r: r.get("text", ""), n_total // 3),
+        ("AG News", "fancyzhx/ag_news", "train",
+         lambda r: r.get("text", ""), n_total // 3),
+    ]:
+        try:
+            ds = load_dataset(ds_name, split=split, cache_dir=cache)
+            collected = []
+            for r in ds:
+                t = text_fn(r)
+                if len(t) > 500:
+                    collected.append(t[:2000])
+                    if len(collected) >= n_max:
+                        break
+            np.random.shuffle(collected)
+            n = min(len(collected), max(1, n_total // 6))
+            texts.extend(collected[:n])
+            sources.extend([name.lower().replace(" ", "_")] * n)
+            print(f"  {name}: {n} texts")
+        except Exception as e:
+            print(f"  {name}: FAILED ({e})")
 
-    # 4. Tiny Shakespeare (creative)
+    # 3. GSM8K (math) — confirmed working with openai/
     try:
-        sh = load_dataset("Trelis/tiny-shakespeare", split="train", cache_dir=None)
-        sh_texts = [r["text"][:2000] for r in sh if len(r.get("text", "")) > 500][:50]
-        n = max(1, n_total // 6)
-        texts.extend(sh_texts[:n])
-        sources.extend(["shakespeare"] * len(sh_texts[:n]))
-        print(f"  Shakespeare: {n} texts")
-    except Exception as e:
-        print(f"  Shakespeare: FAILED ({e})")
-
-    # 5. AG News (news)
-    try:
-        ag = load_dataset("ag_news", split="train", cache_dir=None)
-        ag_texts = [r["text"][:2000] for r in ag if len(r.get("text", "")) > 500]
-        np.random.shuffle(ag_texts)
-        n = max(1, n_total // 6)
-        texts.extend(ag_texts[:n])
-        sources.extend(["ag_news"] * n)
-        print(f"  AG News: {n} texts")
-    except Exception as e:
-        print(f"  AG News: FAILED ({e})")
-
-    # 6. GSM8K (math)
-    try:
-        gsm = load_dataset("gsm8k", "main", split="train", cache_dir=None)
-        gsm_texts = [f"{r['question']}\\n{r['answer']}" for r in gsm if len(r.get("question", "")) > 100]
+        gsm = load_dataset("openai/gsm8k", "main", split="train", cache_dir=cache)
+        gsm_texts = [f"Q: {r['question']}\nA: {r['answer']}" for r in gsm if len(r.get("question", "")) > 100]
         np.random.shuffle(gsm_texts)
-        n = max(1, n_total // 6)
+        n = min(len(gsm_texts), max(1, n_total // 6))
         texts.extend(gsm_texts[:n])
         sources.extend(["gsm8k"] * n)
         print(f"  GSM8K: {n} texts")
     except Exception as e:
         print(f"  GSM8K: FAILED ({e})")
 
-    print(f"  Total: {len(texts)} texts from {len(set(sources))} sources")
+    # 4. TriviaQA (Q&A)
+    try:
+        tqa = load_dataset("trivia_qa/trivia_qa", "rc", split="train", cache_dir=cache)
+        tqa_texts = [f"Q: {r['question']}\nA: {r.get('answer', {}).get('value', '')}" for r in tqa if len(r.get("question", "")) > 50]
+        np.random.shuffle(tqa_texts)
+        n = min(len(tqa_texts), max(1, n_total // 6))
+        texts.extend(tqa_texts[:n])
+        sources.extend(["triviaqa"] * n)
+        print(f"  TriviaQA: {n} texts")
+    except Exception as e:
+        print(f"  TriviaQA: FAILED ({e})")
+
+    # 5. HumanEval (code)
+    try:
+        he = load_dataset("openai/openai_humaneval", split="test", cache_dir=cache)
+        he_texts = [f"Problem: {r['prompt']}\nSolution: {r.get('canonical_solution', '')}" for r in he]
+        np.random.shuffle(he_texts)
+        n = min(len(he_texts), max(1, n_total // 6))
+        texts.extend(he_texts[:n])
+        sources.extend(["humaneval"] * n)
+        print(f"  HumanEval: {n} texts")
+    except Exception as e:
+        print(f"  HumanEval: FAILED ({e})")
+
+    print(f"  Total: {len(texts)} texts from {len(set(sources))} sources: {', '.join(sorted(set(sources)))}")
     return texts
 
 
