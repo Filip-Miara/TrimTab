@@ -1,8 +1,8 @@
 {
   "n_weights": 40960,
   "d_ctx": 5120,
-  "n_train": 12,
-  "n_test": 0,
-  "n_augmented": 1140,
-  "final_loss": 0.22102572640604257
+  "n_train": 45,
+  "n_test": 25,
+  "n_augmented": 4275,
+  "final_loss": 0.9999005222878261
 }
