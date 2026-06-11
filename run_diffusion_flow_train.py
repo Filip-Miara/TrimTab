@@ -184,7 +184,7 @@ def main():
         ctx_hidden = cache.get("x", torch.zeros(1, d_in))
 
         opt = torch.optim.Adam(params, lr=1e-3)
-        weights, ctxs = [], []
+        weights, ctxs, grads = [], [], []
         for step in range(STEPS_PER_TRAJ):
             outputs = model(input_ids=input_ids, labels=labels)
             loss = outputs.loss
@@ -201,13 +201,12 @@ def main():
                         break
 
             flat = torch.cat([p.data.flatten() for p in params]).float().cpu()
+            grad_flat = torch.cat([p.grad.flatten() for p in params]).float().cpu()
             weights.append(flat)
             ctxs.append(torch.cat([ctx_hidden.cpu(), grad_ctx], dim=-1))
+            grads.append(grad_flat)
 
-            if step % 5 == 0:
-                print(f"{loss.item():.2f}", end=" ", flush=True)
-
-        all_traj.append((weights, ctxs))
+        all_traj.append((weights, ctxs, grads))
         target_module.forward = orig_forward
         del adapter, opt; gc.collect(); torch.cuda.empty_cache()
         print()
@@ -219,25 +218,29 @@ def main():
 
     # Create and train diffusion model
     flow = WeightDiffusion(n_weights, d_latent=64, n_latents=16, d_ctx=d_ctx)
-    trainer = DiffusionFlowTrainer(flow, lr=1e-3, device=DEVICE)
+    trainer = DiffusionFlowTrainer(flow, lr=1e-3, device=DEVICE, lambda_optimal=0.5)
 
     print(f"\nTraining diffusion flow...")
     t0 = time.time()
     for epoch in range(15):
-        losses, ld, lf = [], [], []
+        losses, ld, lf, lo = [], [], [], []
         np.random.shuffle(augmented)
         for d in augmented:
-            l, d_l, f_l = trainer.train_step(
+            opt_t = d['optimal_target']
+            if opt_t is not None:
+                opt_t = opt_t.unsqueeze(0).to(DEVICE)
+            l, d_l, f_l, o_l = trainer.train_step(
                 d['clean'].unsqueeze(0).to(DEVICE),
                 d['next'].unsqueeze(0).to(DEVICE),
                 d['flags'].unsqueeze(0).to(DEVICE),
                 d['ctx'].to(DEVICE),
                 torch.tensor([[d['t_noise']]]).to(DEVICE),
                 torch.tensor([[d['t_flow']]]).to(DEVICE),
+                optimal_target=opt_t,
             )
-            losses.append(l); ld.append(d_l); lf.append(f_l)
+            losses.append(l); ld.append(d_l); lf.append(f_l); lo.append(o_l if o_l else 0)
         dt = time.time() - t0
-        print(f"  Epoch {epoch}: total={np.mean(losses):.6f} diff={np.mean(ld):.6f} flow={np.mean(lf):.6f} ({dt:.0f}s)")
+        print(f"  Epoch {epoch}: total={np.mean(losses):.6f} diff={np.mean(ld):.6f} flow={np.mean(lf):.6f} opt={np.mean(lo):.6f} ({dt:.0f}s)")
 
     # Save model
     flow.cpu()

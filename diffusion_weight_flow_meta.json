@@ -4,5 +4,5 @@
   "n_train": 45,
   "n_test": 25,
   "n_augmented": 4275,
-  "final_loss": 0.9999005222878261
+  "final_loss": 0.9998833069606134
 }
