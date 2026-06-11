@@ -356,3 +356,58 @@ python3 run_exp.py --variants edoran doran gend_afa_eva_doran --model-path ...qw
 2. Can the SVD optimal target alone train a weight flow model (no SGD trajectories)?
 3. Does latent reasoning (thought trajectories, not weight trajectories) have enough structure for diffusion to work?
 4. Can the MetaController + WeightDiffusion composition learn end-to-end lifecycles?
+
+---
+
+## 9. Ideas Backlog (IDEAS_BACKLOG.md)
+
+The full backlog is in `IDEAS_BACKLOG.md` (24 items). Below is a cross-referenced summary showing which Phase 3 work already addresses Phase 2 backlog items, and which remain open.
+
+### Phase 3 Work That Addresses Backlog Items
+
+| Backlog # | Idea | Phase 3 Coverage | Status |
+|-----------|------|-----------------|--------|
+| 1 | SelectiveLoRA | Not directly implemented, but **TaylorContribution** (v0.4) provides element-wise importance scoring that could drive selective freezing | Partial |
+| 2 | Direction-Aware Routing | **HybridStreamExpert** with `bidirectional` soft flag + **TAF-LoRA** attention routing provides learned per-token direction selection | ✅ Implemented |
+| 3 | Mixture-of-Direction-Experts | **StreamFusion's expert pool + PerceiverFusion routing** IS an MoE over adapter experts | ✅ Implemented |
+| 4 | Cycled × Flag Combos | **HybridStreamExpert** supports all flag combinations (AFA, AUR, PERA, vector, norm, gate) with soft blending — no cycling needed since all paths are always active | ✅ Exceeded |
+| 5 | Multi-Angle DiagLoRA | Not covered | Open |
+| 6 | Rank Sweep | Not covered (all experiments used r=8) | Open |
+| 7 | Training Depth | Covered by **StreamFusion streaming** (up to 10 segments, 200 steps) | ✅ Implemented |
+| 8 | Cross-Dataset Validation | **5-source training** (arxiv, dolly, ag_news, gsm8k, humaneval) — most comprehensive to date | ✅ Implemented |
+| 9 | Gradient Conflict Measurement | **TaylorContribution** and **AlternatingTrainer** (v0.4) measure per-rank-1 gradient contributions | ✅ Implemented |
+| 10 | Adapter Merging | Not covered — inference speed not optimized | Open |
+| 11 | KnitLoRA Memory | Not covered — Knit still OOM | Open |
+| 12 | BoRA + LayerNorm | **HybridStreamExpert** includes norm flag for all variants | ✅ Implemented |
+| 13 | Toy Model w/ Structure | Not covered | Open |
+| 14 | Switching Interval | **Soft flags + morph_step** make cycling obsolete — continuous blending replaces discrete switching | ✅ Exceeded |
+| 15 | DoRAN vs EDoRA | Not covered (Phase 2 experiment) | Open |
+| 16 | Quantization Behavior | Not covered | Open |
+| 17 | Diagonal Dropout | Not covered | Open |
+| 18 | Frequency-Domain Analysis | Not covered | Open |
+| 19 | SelectiveLoRA × Cycling | Not covered — cycling superseded by soft flags | Open |
+| 20 | Sparsity Ratio Sweep | Not covered | Open |
+| 21 | Importance Metric Comparison | **TaylorContribution** implements gradient-based, Fisher, and sensitivity metrics | ✅ Implemented |
+| 22 | Per-Token vs Per-Seq Routing | **TAF-LoRA routing** is per-token (attention weights per position) | ✅ Implemented |
+| 23 | Fwd/Bwd Asymmetry | Not covered — all experiments used equal rank | Open |
+
+### New Phase 3 Ideas (not in original backlog)
+
+| Idea | Description | Priority |
+|------|-------------|----------|
+| **Flow Matching Over Weights** | Velocity field predicts next weight from current weight + data context. Perfect training fit (MSE ≈ 0), but doesn't generalize to test data. Need richer conditioning or SVD target. | ★★★ |
+| **Closed-Form SVD Optimal Target** | Optimal rank-r update via SVD of R·X⁺. 29.8% loss reduction in one step. Should be the primary training target, not SGD trajectories. | ★★★ |
+| **Stagnation Penalty** | Penalize zero velocity predictions to force non-zero output. Increases velocity norm 1615×. Counteracts model's tendency to predict zero on unseen data. | ★★★ |
+| **Dynamic K (Entropy-Thresholded)** | Drop Perceiver latents with high attention entropy (uniformly attending → useless). Correctly identifies unspecialized latents. | ★★ |
+| **Dynamic K (Adaptive Growth)** | Start with minimum latents, expand when thought change stalls. Mirrors human reasoning (start simple, elaborate when stuck). | ★★ |
+| **Soft Flag Morphing** | Continuous [0,1] flag blending with exponential moving average toward targets. Enables smooth architectural transitions within a segment. | ★★ |
+| **Diffusion Denoising Over Weights** | Predict noise added to weights. **Doesn't work** — MSE stuck at 1.0 because clean weights are unstructured. Not recommended for weight-space applications. | ★ (negative result) |
+| **Latent Reasoning Engine** | Replace weights as flow matching object with thoughts (hidden states). Thoughts have structure → denoising should work. The natural next direction. | ★★★ |
+
+### Priority Recommendation
+
+1. ★★★ **Closed-form SVD as primary target** — drop SGD trajectory matching, train velocity field to predict optimal update directly
+2. ★★★ **Latent Reasoning Engine** — shift from weight-space to thought-space flow matching
+3. ★★ **Richer conditioning** — full hidden state sequence instead of mean, or cross-attention to the input
+4. ★★ **SelectiveLoRA** (backlog #1) — element-wise importance freezing via TaylorContribution
+5. ★★ **Rank sweep** (backlog #6) — does flow matching work better at higher ranks?
