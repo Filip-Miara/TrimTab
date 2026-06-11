@@ -367,8 +367,18 @@ class DiffusionFlowTrainer:
 def augment_trajectories(
     trajectories: list,
     n_noise_levels: int = 5,
+    min_alignment: float = 0.0,
 ) -> list[dict]:
-    """Augment trajectories with multiple noise levels."""
+    """Augment trajectories with multiple noise levels.
+
+    Args:
+        trajectories: list of (weights, ctxs) or (weights, ctxs, grads) tuples
+        n_noise_levels: number of noise levels for diffusion augmentation
+        min_alignment: minimum cosine similarity between SGD update and gradient
+                       direction. Samples with alignment < min_alignment are skipped
+                       (prevents learning from noisy/low-quality trajectory steps).
+                       Set to 0.0 to include all samples (default).
+    """
     augmented = []
     for item in trajectories:
         if len(item) == 3:
@@ -380,13 +390,23 @@ def augment_trajectories(
             w_t = weights[t_idx]
             w_tp1 = weights[t_idx + 1]
             ctx = ctxs[t_idx] if t_idx < len(ctxs) else ctxs[-1]
+            sgd_update = w_tp1 - w_t
 
+            # Compute alignment: cos(SGD_update, -gradient)
+            alignment = None
             opt_target = None
             if grads is not None and t_idx < len(grads):
                 g = grads[t_idx]
                 g_norm = g.norm()
                 if g_norm > 1e-8:
+                    sgd_norm = sgd_update.norm()
+                    if sgd_norm > 1e-8:
+                        alignment = float(-(sgd_update @ g).item() / (sgd_norm * g_norm))
                     opt_target = -(g / g_norm)
+
+            # Filter by alignment
+            if alignment is not None and alignment < min_alignment:
+                continue
 
             for k in range(n_noise_levels):
                 t_noise_val = k / max(n_noise_levels - 1, 1)
@@ -396,5 +416,6 @@ def augment_trajectories(
                     "ctx": ctx,
                     "flags": torch.zeros(N_FLAGS),
                     "optimal_target": opt_target,
+                    "alignment": alignment,
                 })
     return augmented

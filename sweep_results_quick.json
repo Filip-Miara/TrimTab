@@ -1,0 +1,71 @@
+{
+  "config": {
+    "d_latent": [
+      32
+    ],
+    "n_latents": [
+      8
+    ],
+    "lr": [
+      0.0003
+    ],
+    "lambda_flow": [
+      0.1,
+      0.5
+    ],
+    "lambda_optimal": [
+      0.0,
+      0.5
+    ],
+    "lambda_stagnation": [
+      0.2
+    ]
+  },
+  "results": [
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.1_ot0.5_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.1,
+        "lambda_optimal": 0.5,
+        "lambda_stagnation": 0.2,
+        "epochs": 5
+      },
+      "train_loss": 0.4789355008188122,
+      "eval_loss": 0.00013106922294052006,
+      "train_trajectory": [
+        1.0004226918705923,
+        0.9191813825847146,
+        0.7226581512810941,
+        0.5654878436091417,
+        0.4789355008188122
+      ]
+    },
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.1_ot0.0_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.1,
+        "lambda_optimal": 0.0,
+        "lambda_stagnation": 0.2,
+        "epochs": 5
+      },
+      "train_loss": 0.27788145420794,
+      "eval_loss": 3.3664127439260483,
+      "train_trajectory": [
+        0.9900263422977424,
+        0.9541413798303662,
+        0.7655797093928217,
+        0.5135084934934171,
+        0.27788145420794
+      ]
+    }
+  ],
+  "total_time": 1609.0486769676208
+}

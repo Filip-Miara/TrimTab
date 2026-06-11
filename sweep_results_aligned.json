@@ -1,0 +1,107 @@
+{
+  "config": {
+    "d_latent": [
+      32
+    ],
+    "n_latents": [
+      8
+    ],
+    "lr": [
+      0.0003
+    ],
+    "lambda_flow": [
+      0.1,
+      0.5
+    ],
+    "lambda_optimal": [
+      0.0,
+      0.5
+    ],
+    "lambda_stagnation": [
+      0.2
+    ]
+  },
+  "results": [
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.1_ot0.5_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.1,
+        "lambda_optimal": 0.5,
+        "lambda_stagnation": 0.2,
+        "epochs": 3
+      },
+      "train_loss": 1.0000913484891256,
+      "eval_loss": 9.764580022936735e-07,
+      "train_trajectory": [
+        1.001267646153768,
+        0.9999767216046651,
+        1.0000913484891256
+      ]
+    },
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.5_ot0.0_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.5,
+        "lambda_optimal": 0.0,
+        "lambda_stagnation": 0.2,
+        "epochs": 3
+      },
+      "train_loss": 0.9997125681241353,
+      "eval_loss": 5.011958907371908e-06,
+      "train_trajectory": [
+        1.0004720894495647,
+        1.000155181090037,
+        0.9997125681241353
+      ]
+    },
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.5_ot0.5_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.5,
+        "lambda_optimal": 0.5,
+        "lambda_stagnation": 0.2,
+        "epochs": 3
+      },
+      "train_loss": 0.9990957951545716,
+      "eval_loss": 0.00015845530536105136,
+      "train_trajectory": [
+        1.0001657183965047,
+        0.9999502587318421,
+        0.9990957951545716
+      ]
+    },
+    {
+      "name": "dl32_nl8_lr0.0003_fl0.1_ot0.0_st0.2",
+      "params": {
+        "d_latent": 32,
+        "n_latents": 8,
+        "n_blocks": 2,
+        "lr": 0.0003,
+        "lambda_flow": 0.1,
+        "lambda_optimal": 0.0,
+        "lambda_stagnation": 0.2,
+        "epochs": 3
+      },
+      "train_loss": 0.9649206471443176,
+      "eval_loss": 0.43965295499021356,
+      "train_trajectory": [
+        0.9950436401367188,
+        0.9790490818023682,
+        0.9649206471443176
+      ]
+    }
+  ],
+  "total_time": 1409.169728755951
+}

@@ -1,8 +1,16 @@
 {
-  "n_weights": 40960,
-  "d_ctx": 5120,
-  "n_train": 45,
-  "n_test": 25,
-  "n_augmented": 4275,
-  "final_loss": 0.9998833069606134
+  "n_weights": 49152,
+  "d_ctx": 6144,
+  "n_train": 35,
+  "n_test": 10,
+  "n_augmented": 2495,
+  "final_loss": 0.3762726722955704,
+  "d_latent": 32,
+  "n_latents": 8,
+  "n_blocks": 2,
+  "lr": 0.0003,
+  "lambda_flow": 0.1,
+  "lambda_optimal": 0.5,
+  "lambda_stagnation": 0.2,
+  "epochs": 3
 }

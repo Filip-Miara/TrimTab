@@ -205,13 +205,15 @@ def generate_trajectories(
         target_module.forward = orig_forward
         del adapter, opt; gc.collect(); torch.cuda.empty_cache()
 
-        # Save this trajectory
+        # Save this trajectory — now includes input_ids and original text
         traj_data = {
             "weights": weights,
             "ctxs": ctxs,
             "grads": grads,
             "losses": losses,
             "source": "mixed",
+            "input_ids": enc["input_ids"].cpu(),  # store for evaluation
+            "text": text,                         # store original text
             "metadata": {
                 "model": model_key,
                 "rank": rank,
