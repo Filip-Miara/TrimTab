@@ -1,0 +1,15 @@
+{
+  "model": "2B",
+  "model_path": "/run/media/filip/B522-875D/Datasets/hub/models--Qwen--Qwen3.5-2B/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+  "n_trajectories": 50,
+  "steps_per_traj": 20,
+  "rank": 8,
+  "d_in": 2048,
+  "d_out": 4096,
+  "n_weights": 49152,
+  "d_ctx": 6144,
+  "max_length": 512,
+  "target_layer": "model.layers.3.self_attn.q_proj",
+  "total_time_s": 304.0035562515259,
+  "created": "2026-06-11 21:27:21"
+}

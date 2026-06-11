@@ -38,10 +38,7 @@ MODEL_PATHS = {
         os.path.expanduser("~/.cache/huggingface/hub"),
         "models--Qwen--Qwen3.5-0.8B/snapshots/2fc06364715b967f1860aea9cf38778875588b17",
     ),
-    "2B": os.path.join(
-        os.path.expanduser("~/.cache/huggingface/hub"),
-        "models--Qwen--Qwen3.5-2B/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
-    ),
+    "2B": "/run/media/filip/B522-875D/Datasets/hub/models--Qwen--Qwen3.5-2B/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
 }
 
 CACHE_DIR = "/run/media/filip/B522-875D/Datasets/hub"
