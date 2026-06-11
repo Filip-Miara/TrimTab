@@ -4,3 +4,9 @@ __pycache__/
 sf_hybrid_*.json
 results*.json
 lifecycle_*.json
+*.pt
+thought_trajectories*/
+reasoning_trajectories/
+trajectories_2B/
+thought_flow_train_history.json
+thought_flow_train_results.json

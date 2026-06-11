@@ -136,44 +136,79 @@ and flow matching should work on this domain.
 - **DDIM denoising**: Produces worse results than zero initialization
   due to error amplification. **Don't use for weight generation.**
 
+## Phase 4 Executed: Flow Matching Over Thought Trajectories
+
+### Core Finding: ✅ Thoughts HAVE Structure — R² = 0.29
+
+**Weight flow**: R² ≈ 0.0, cos ≈ 0 (failed — weights are random)
+**Thought flow**: R² = 0.29, cos = 0.54 (works — hidden states are structured)
+
+### What Worked
+
+| Approach | R² | Cos | Key Insight |
+|----------|-----|------|-------------|
+| Per-step MLP (no norm) | 0.00 | 0.03 | Can't learn per-layer functions |
+| Per-step MLP (normed) | 0.05 | 0.25 | Small but real signal |
+| **Perceiver (full trajectory)** | **0.29** | **0.54** | **Cross-layer modeling works** |
+
+### What Was Built (Phase 4)
+
+| Component | File | Role |
+|-----------|------|------|
+| **ThoughtDiffusion** | `src/adapters/thought_diffusion.py` | Perceiver over full trajectory → predicts all velocities |
+| **ThoughtTrajectoryDataset** | `run_thought_flow_train.py` | Loads 500 trajectories, (25, 2048) each |
+| **Layer-traj generator** | `generate_thought_trajectories.py` | Records hidden states at each layer for last token |
+| **Perceiver trainer** | `run_perceiver_flow_train.py` | MSE loss on (B, 23, 2048) → (B, 23, 2048) |
+| **MLP trainer** | `run_thought_flow_train.py` | Per-step prediction (for comparison) |
+| **Eval script** | `run_thought_flow_eval.py` | Held-out R², cos, per-layer breakdown |
+
+### Why Perceiver > Per-Step MLP
+
+Per-step prediction sees **one** hidden state → predicts one velocity. Each layer is a different function (different attention/MLP weights). The model must learn 23 functions from ~40 examples each.
+
+The Perceiver sees **all 23 hidden states** simultaneously → predicts all 23 velocities. Latents can attend to cross-layer patterns (how attention evolves, MLP nonlinearities compound). This provides 23× the conditioning signal and enables pattern-matching.
+
+### Data Generated
+
+| Dataset | Location | Size | Content |
+|---------|----------|------|---------|
+| Layer trajectories (50) | `thought_trajectories/` | 6 MB | Qwen3.5-2B layer-wise hidden states |
+| Layer trajectories (500) | `thought_trajectories_500/` | 60 MB | 500 trajectories, 11500 training pairs |
+| Reasoning-step trajs (156) | `reasoning_trajectories/` | — | Token-by-token trajectories (slow to generate) |
+
+### Key Commands (Phase 4)
+
+```bash
+# Train Perceiver on layer trajectories:
+python3 run_perceiver_flow_train.py --trajectories ./thought_trajectories_500/
+
+# Train per-step MLP (comparison):
+python3 run_thought_flow_train.py --trajectories ./thought_trajectories_500/
+
+# Generate more layer trajectories:
+python3 generate_thought_trajectories.py --model 2B --n-traj 500 --output ./new_trajs/
+
+# Evaluate:
+python3 run_thought_flow_eval.py --model-path best_perceiver.pt
+```
+
+### Next: Phase 4b (Amplify R² from 0.29 → 0.80+)
+
+1. **Scale data**: 5000+ trajectories (takes ~10 min to generate)
+2. **Scale model**: d_latent=128, n_latents=32, 4 Perceiver blocks
+3. **Improve conditioning**: Use full text embedding (not just h[0])
+4. **Reading heads**: Linear probes on Perceiver latents → uncertainty/concept extraction
+5. **MetaController**: Use reading heads to decide reasoning mode
+
 ## Open Questions (Ranked by Impact)
 
 | # | Question | Why It Matters | What Would Answer It |
 |---|----------|---------------|---------------------|
-| 1 | Do thought trajectories have enough structure for flow matching to generalize? | If yes, our entire infrastructure transfers. If no, need new approach. | Train WeightDiffusion on thought trajectories from a reasoning dataset. Measure held-out MSE. |
+| 1 | Can we push thought flow matching R² to 0.80+ with more data/capacity? | If yes, the latent reasoning pipeline is viable. | Train with 5000+ trajectories and larger model. |
 | 2 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 on a small reasoning task with DynamicPerceiverWrapper. |
-| 3 | Should reasoning be monotonic (each step improves) or exploratory (can get worse)? | Determines whether diffusion (monotonic) or flow matching (any trajectory) is correct formulation. | Compare DDIM denoising vs. flow integration on thought trajectories. |
-| 4 | Can reading heads extract useful concepts (uncertainty, contradiction) from thought latents? | Would provide conditioning signal for MetaController to decide reasoning mode. | Train linear probes on thought latents with contrastive pairs. |
-| 5 | Does the closed-form SVD optimal update work for thoughts as well as weights? | If yes, training signal is always meaningful (not zero). | Compute SVD of thought residual. Compare to observed thought trajectories. |
-
-## Recommended Next Phase
-
-### Phase 4: Latent Reasoning Engine
-
-Build on the existing infrastructure to create a system that performs
-iterative reasoning in latent space:
-
-1. **Week 1**: Adapt PerceiverFusion to process thought trajectories
-   (hidden states from a language model) instead of adapter weights.
-   - Replace weight-space tensors with thought-space tensors
-   - Keep the same Perceiver bottleneck + cross/self-attention
-   - Initial K fixed at 16 (from DynamicPerceiverWrapper)
-
-2. **Week 2**: Train WeightDiffusion on thought trajectories from a
-   reasoning dataset (e.g., GSM8K chain-of-thought traces).
-   - Collect thought trajectories = hidden states at each reasoning step
-   - Train flow matching objective (predict next thought from current)
-   - Evaluate: does flow matching generalize to held-out reasoning data?
-
-3. **Week 3**: Add structured reading heads + mode arbitration.
-   - Linear probes to extract uncertainty, contradiction from thought latents
-   - MetaController decides: pass-through, self-correct, or latent CoT mode
-   - Train via RL (task accuracy improvement as reward)
-
-4. **Week 4**: End-to-end evaluation on reasoning benchmarks.
-   - Correctness, efficiency (steps to convergence), consistency,
-     coherence, adaptivity, causal density
-   - Compare against chain-of-thought, self-consistency, tree-of-thought
+| 3 | Do reading heads extract useful concepts from Perceiver latents? | Would provide conditioning signal for MetaController. | Train linear probes on thought latents with contrastive pairs. |
+| 4 | Does reasoning-step (token-to-token) flow matching work better than layer-to-layer? | Both are valid formulations for latent reasoning. | Generate 1000+ reasoning-step trajectories, train and compare R². |
+| 5 | Can we use the Perceiver as a reasoning engine (generate trajectories at inference)? | The end goal: generate better reasoning trajectories. | Integrate flow → sample → evaluate on reasoning tasks. |
 
 ### Key Commands to Start
 
