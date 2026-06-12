@@ -192,38 +192,66 @@ python3 generate_thought_trajectories.py --model 2B --n-traj 500 --output ./new_
 python3 run_thought_flow_eval.py --model-path best_perceiver.pt
 ```
 
-### Scale Results: Phase 4b (v0.22.0-scaling)
+### Phase 4c: Reading Heads + Correlation Experiments (v0.23.0-readingheads)
 
-| Config | Epochs | R² | Notes |
-|--------|--------|----|-------|
-| 500 trajs, 0.76M model | 200 | 0.29 | Phase transition at ~ep 10 |
-| 500 trajs, 2.2M model | 100 | **0.42** | Phase transition at ~ep 8 |
-| 5000 trajs, 0.76M model | 30 | 0.30 | More data doesn't help small model |
-| 5000 trajs, 2.2M model | 200 | **0.42** | Same ceiling as 500 trajs! |
-| 5000 trajs, 8.9M model | 80 | 0.04 | 64 latents/23 inputs — stalls |
+| Experiment | Result | Interpretation |
+|------------|--------|----------------|
+| Flow-correctness correlation | p=0.12, no sig | R²=0.42 insufficient for per-answer detection |
+| Reading heads (perplexity) | **r=0.862** | Perceiver latents STRONGLY encode uncertainty |
 
-**Key insight**: R² saturates at ~0.42 regardless of data (500→5000 trajs). The ceiling is architectural — the Perceiver's cross-attention to 23 hidden states limits its ability to learn finer velocity structure. The ratio of latents to inputs matters: 32:23 works, 64:23 stalls.
+The reading head is a linear probe (524K params) on frozen Perceiver latents (32×128=4096-dim).
+Trained on 90K tokens from GSM8K to predict token-level perplexity. Achieves r=0.86 on held-out data.
 
-### Next: Phase 5 — Latent Reasoning Intervention
+**Key files**:
+- `run_flow_correctness.py` — Flow-correctness correlation on GSM8K
+- `run_reading_heads.py` — Linear probe: latents → perplexity prediction
+- `src/adapters/thought_diffusion.py` — Added `return_latents=True` option
 
-Instead of more capacity, use the trained flow field to IMPROVE reasoning:
+### Next: Phase 5 — MetaController (Uncertainty-Guided Reasoning)
 
-1. **Week 1**: Build intervention pipeline — during generation, read hidden state → Perceiver predicts velocity → gently apply to steer toward "flow-matched" direction
-2. **Week 2**: Test on GSM8K arithmetic — does nudging toward the predicted velocity improve accuracy?
-3. **Week 3**: Add reading heads (linear probes on Perceiver latents) → extract uncertainty, contradiction
-4. **Week 4**: MetaController arbitration — use reading heads to decide when to intervene
+Build on two confirmed capabilities:
+1. **R²=0.42** flow matching on thought trajectories
+2. **r=0.86** reading heads for uncertainty detection
 
-The intervention approach bypasses the R² ceiling: we don't need perfect velocity predictions to nudge the model in the right direction. Even R²=0.42 provides a useful signal.
+The MetaController architecture:
+```
+At each token generation step:
+  1. Forward pass → capture hidden states
+  2. Perceiver → predict velocity + extract latents
+  3. Reading head → compute uncertainty score
+  4. If uncertainty > threshold τ:
+     - Apply α × velocity to hidden states (steering)
+     - Increase temperature for broader exploration
+     - Or re-generate with modified state
+  5. If uncertainty < threshold τ:
+     - Pass-through (default generation)
+```
+
+Implementation plan:
+1. **Week 1**: Build MetaController class + inference pipeline
+   - Load Perceiver + reading head
+   - Hook into model forward pass
+   - Per-token: read hidden states → Perceiver → reading head → gate decision
+2. **Week 2**: Implement adaptive compute
+   - If uncertainty > τ: latent CoT (extra iterations in latent space)
+   - If uncertainty < τ: continue normally
+   - Test on GSM8K: does accuracy improve?
+3. **Week 3**: Integrate flow steering
+   - Apply α × Perceiver velocity when uncertainty is high
+   - Measure: accuracy delta, generation quality, computational cost
+4. **Week 4**: End-to-end evaluation
+   - Compare: base model vs MetaController vs MetaController+steering
+   - Metrics: accuracy, tokens per answer, variance across seeds
 
 ## Open Questions (Ranked by Impact)
 
 | # | Question | Why It Matters | What Would Answer It |
 |---|----------|---------------|---------------------|
-| 1 | Can flow-matched velocity nudging improve reasoning accuracy? | Direct test of practical utility. | Intervene during GSM8K generation, measure accuracy delta. |
-| 2 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 with DynamicPerceiverWrapper. |
-| 3 | Do reading heads extract useful concepts from Perceiver latents? | Would provide conditioning signal for MetaController. | Train linear probes on thought latents with contrastive pairs. |
-| 4 | Does reasoning-step flow matching work better than layer-to-layer? | Which formulation for latent reasoning? | Generate 1000+ reasoning-step trajectories, compare R². |
-| 5 | What's the optimal intervention strength (gate value)? | Too strong → catastrophic. Too weak → no effect. | Grid search gating during inference. |
+| 1 | Can MetaController uncertainty threshold improve reasoning accuracy? | Direct test of adaptive compute. | Compare GSM8K accuracy with/without MetaController. |
+| 2 | What's the optimal uncertainty threshold τ? | Too low → unnecessary compute. Too high → missed opportunities. | Sweep τ=0.1-0.9 on GSM8K validation. |
+| 3 | Does velocity steering + uncertainty gating outperform either alone? | Tests if both components provide additive benefit. | Ablation study on GSM8K. |
+| 4 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 with DynamicPerceiverWrapper. |
+| 5 | Does reasoning-step flow matching work better than layer-to-layer? | Which formulation for latent reasoning? | Generate 1000+ reasoning-step trajectories, compare R². |
 
 ### Key Commands to Start
 
