@@ -27,11 +27,14 @@ class SelfAttention(nn.Module):
         self.qkv = nn.Linear(d_model, 3 * d_model)
         self.out = nn.Linear(d_model, d_model)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, causal: bool = False) -> torch.Tensor:
         B, L, D = x.shape
         qkv = self.qkv(x).reshape(B, L, 3, self.n_heads, self.d_head).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = (q @ k.transpose(-2, -1)) * (self.d_head ** -0.5)
+        if causal:
+            mask = torch.triu(torch.ones(L, L, device=x.device, dtype=torch.bool), diagonal=1)
+            attn = attn.masked_fill(mask, float('-inf'))
         attn = F.softmax(attn, dim=-1)
         out = (attn @ v).transpose(1, 2).reshape(B, L, D)
         return self.out(out)
@@ -47,8 +50,8 @@ class TransformerBlock(nn.Module):
             nn.Linear(d_model, d_ff), nn.GELU(), nn.Linear(d_ff, d_model),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln1(x))
+    def forward(self, x: torch.Tensor, causal: bool = False) -> torch.Tensor:
+        x = x + self.attn(self.ln1(x), causal=causal)
         x = x + self.ffn(self.ln2(x))
         return x
 
@@ -60,7 +63,7 @@ class TrajectoryTransformer(nn.Module):
         n_layers: int = 6,
         n_heads: int = 8,
         d_ff: int = 2048,
-        n_positions: int = 23,
+        n_positions: int = 256,  # support up to 256 reasoning steps
         d_input: int = 2048,
     ):
         super().__init__()
@@ -75,14 +78,14 @@ class TrajectoryTransformer(nn.Module):
         self.output_norm = nn.LayerNorm(d_model)
         self.output_proj = nn.Linear(d_model, d_input)
 
-    def forward(self, hidden_seq: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_seq: torch.Tensor, causal: bool = False) -> torch.Tensor:
         B, L, D = hidden_seq.shape
         x = self.input_norm(self.input_proj(hidden_seq))
         pos = self.pos_embed(torch.arange(L, device=hidden_seq.device)).unsqueeze(0)
         x = x + pos
 
         for block in self.blocks:
-            x = block(x)
+            x = block(x, causal=causal)
 
         x = self.output_norm(x)
         velocity = self.output_proj(x)

@@ -1,0 +1,12 @@
+Loading GSM8K...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  8791 problems available
+Loading model...
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   2%|▏         | 5/320 [00:00<00:06, 48.07it/s]Loading weights:   7%|▋         | 22/320 [00:00<00:07, 38.25it/s]Loading weights:  28%|██▊       | 89/320 [00:00<00:01, 170.49it/s]Loading weights:  44%|████▍     | 142/320 [00:00<00:00, 227.80it/s]Loading weights:  55%|█████▌    | 176/320 [00:03<00:04, 32.90it/s] Loading weights:  62%|██████▏   | 198/320 [00:07<00:06, 17.58it/s]Loading weights:  67%|██████▋   | 213/320 [00:09<00:08, 12.88it/s]Loading weights:  70%|███████   | 224/320 [00:10<00:07, 12.45it/s]Loading weights:  97%|█████████▋| 311/320 [00:10<00:00, 33.57it/s]Loading weights: 100%|██████████| 320/320 [00:10<00:00, 29.29it/s]
+  500/1000 | avg_len=50 | 714s | 0.7/s | ETA 714s
+  1000/1000 | avg_len=50 | 1439s | 0.7/s | ETA 0s
+Done: 1000 trajs in 1439.7s (0.7/s)
+  Avg length: 50 tokens
+  Max length: 50
+  Saved to /run/media/filip/B522-875D/Datasets/project_data/reasoning_trajs_5k/

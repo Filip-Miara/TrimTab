@@ -1,0 +1,63 @@
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   0%|          | 1/320 [00:12<1:06:27, 12.50s/it]Loading weights:   2%|▎         | 8/320 [00:12<06:08,  1.18s/it]  Loading weights:   4%|▍         | 12/320 [00:13<03:42,  1.39it/s]Loading weights:   4%|▍         | 14/320 [00:13<03:09,  1.61it/s]Loading weights:   6%|▌         | 18/320 [00:14<02:00,  2.51it/s]Loading weights:   9%|▉         | 28/320 [00:14<00:50,  5.82it/s]Loading weights:  12%|█▏        | 39/320 [00:14<00:27, 10.24it/s]Loading weights:  14%|█▍        | 46/320 [00:14<00:20, 13.41it/s]Loading weights:  19%|█▉        | 61/320 [00:14<00:11, 23.54it/s]Loading weights:  21%|██▏       | 68/320 [00:14<00:09, 25.48it/s]Loading weights:  23%|██▎       | 75/320 [00:15<00:08, 28.48it/s]Loading weights:  25%|██▌       | 81/320 [00:15<00:09, 25.21it/s]Loading weights:  28%|██▊       | 89/320 [00:15<00:07, 31.22it/s]Loading weights:  29%|██▉       | 94/320 [00:15<00:07, 29.97it/s]Loading weights:  31%|███       | 99/320 [00:15<00:08, 24.99it/s]Loading weights:  32%|███▏      | 103/320 [00:16<00:08, 25.82it/s]Loading weights:  33%|███▎      | 107/320 [00:16<00:07, 26.73it/s]Loading weights:  36%|███▌      | 114/320 [00:16<00:06, 30.06it/s]Loading weights:  37%|███▋      | 118/320 [00:16<00:07, 27.77it/s]Loading weights:  38%|███▊      | 122/320 [00:16<00:08, 24.65it/s]Loading weights:  39%|███▉      | 125/320 [00:17<00:08, 22.62it/s]Loading weights:  41%|████▏     | 132/320 [00:17<00:07, 24.46it/s]Loading weights:  42%|████▏     | 135/320 [00:17<00:08, 20.64it/s]Loading weights:  44%|████▍     | 142/320 [00:17<00:06, 26.37it/s]Loading weights:  45%|████▌     | 145/320 [00:17<00:07, 24.65it/s]Loading weights:  46%|████▋     | 148/320 [00:18<00:10, 16.23it/s]Loading weights:  47%|████▋     | 151/320 [00:18<00:09, 17.03it/s]Loading weights:  48%|████▊     | 154/320 [00:18<00:12, 13.09it/s]Loading weights:  50%|████▉     | 159/320 [00:18<00:10, 15.22it/s]Loading weights:  52%|█████▏    | 165/320 [00:19<00:08, 19.11it/s]Loading weights:  53%|█████▎    | 170/320 [00:19<00:06, 23.52it/s]Loading weights:  54%|█████▍    | 173/320 [00:19<00:10, 14.40it/s]Loading weights:  56%|█████▌    | 179/320 [00:20<00:08, 17.44it/s]Loading weights:  58%|█████▊    | 185/320 [00:20<00:07, 18.37it/s]Loading weights:  59%|█████▉    | 188/320 [00:20<00:09, 13.74it/s]Loading weights:  61%|██████    | 195/320 [00:21<00:07, 16.83it/s]Loading weights:  62%|██████▏   | 199/320 [00:21<00:07, 17.26it/s]Loading weights:  63%|██████▎   | 201/320 [00:21<00:08, 14.65it/s]Loading weights:  64%|██████▍   | 204/320 [00:21<00:07, 14.99it/s]Loading weights:  64%|██████▍   | 206/320 [00:22<00:11, 10.33it/s]Loading weights:  66%|██████▋   | 212/320 [00:22<00:07, 14.95it/s]Loading weights:  69%|██████▉   | 220/320 [00:22<00:06, 16.49it/s]Loading weights:  71%|███████   | 226/320 [00:22<00:05, 18.65it/s]Loading weights:  73%|███████▎  | 233/320 [00:23<00:04, 20.60it/s]Loading weights:  74%|███████▍  | 238/320 [00:23<00:04, 18.49it/s]Loading weights:  75%|███████▌  | 240/320 [00:24<00:06, 13.18it/s]Loading weights:  78%|███████▊  | 248/320 [00:24<00:03, 18.07it/s]Loading weights:  78%|███████▊  | 251/320 [00:24<00:03, 18.20it/s]Loading weights:  79%|███████▉  | 254/320 [00:24<00:05, 12.67it/s]Loading weights:  80%|████████  | 257/320 [00:25<00:04, 14.25it/s]Loading weights:  81%|████████  | 259/320 [00:25<00:05, 10.99it/s]Loading weights:  83%|████████▎ | 265/320 [00:25<00:03, 16.98it/s]Loading weights:  85%|████████▌ | 273/320 [00:25<00:02, 22.89it/s]Loading weights:  87%|████████▋ | 277/320 [00:25<00:01, 22.34it/s]Loading weights:  88%|████████▊ | 280/320 [00:26<00:02, 16.69it/s]Loading weights:  89%|████████▉ | 285/320 [00:26<00:02, 17.34it/s]Loading weights:  91%|█████████ | 291/320 [00:26<00:01, 20.78it/s]Loading weights:  92%|█████████▏| 294/320 [00:26<00:01, 18.29it/s]Loading weights:  94%|█████████▍| 301/320 [00:27<00:00, 20.86it/s]Loading weights:  95%|█████████▌| 305/320 [00:27<00:00, 23.39it/s]Loading weights:  96%|█████████▋| 308/320 [00:27<00:00, 16.54it/s]Loading weights:  97%|█████████▋| 311/320 [00:28<00:00, 13.18it/s]Loading weights:  98%|█████████▊| 313/320 [00:28<00:00, 13.77it/s]Loading weights:  99%|█████████▉| 316/320 [00:28<00:00, 14.18it/s]Loading weights: 100%|██████████| 320/320 [00:28<00:00, 11.26it/s]
+3 heads × 2,427,520 = 7,282,560 params
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Collecting generation-time data from 200 problems...
+  first token: ' Step' (id=14392)
+  collected 1000 tokens (5/prob avg)
+  first token: ' Step' (id=14392)
+  collected 2000 tokens (10/prob avg)
+  first token: ' Step' (id=14392)
+  collected 3000 tokens (15/prob avg)
+  first token: ' Step' (id=14392)
+  collected 4000 tokens (20/prob avg)
+  first token: ' Step' (id=14392)
+  collected 5000 tokens (25/prob avg)
+  first token: ' Step' (id=14392)
+  collected 6000 tokens (30/prob avg)
+  first token: ' Step' (id=14392)
+  collected 7000 tokens (35/prob avg)
+  first token: ' Step' (id=14392)
+  collected 8000 tokens (40/prob avg)
+  first token: ' Step' (id=14392)
+  collected 9000 tokens (45/prob avg)
+  first token: ' Step' (id=14392)
+  collected 10000 tokens (50/prob avg)
+  first token: ' Step' (id=14392)
+  collected 11000 tokens (55/prob avg)
+  first token: ' Step' (id=14392)
+  collected 12000 tokens (60/prob avg)
+  first token: ' Step' (id=14392)
+  collected 13000 tokens (65/prob avg)
+  first token: ' Step' (id=14392)
+  collected 14000 tokens (70/prob avg)
+  first token: ' Step' (id=14392)
+  collected 15000 tokens (75/prob avg)
+  first token: ' Step' (id=14392)
+  collected 16000 tokens (80/prob avg)
+  first token: ' Step' (id=14392)
+  collected 17000 tokens (85/prob avg)
+  first token: ' Step' (id=14392)
+  collected 18000 tokens (90/prob avg)
+  first token: ' Step' (id=14392)
+  collected 19000 tokens (95/prob avg)
+  first token: ' Step' (id=14392)
+  collected 20000 tokens (100/prob avg)
+  Total: 20000 token-latent pairs
+  Train: 18000, Val: 2000
+  ep= 5 val_acc=78.0% best=78.0% 129s
+  ep=10 val_acc=83.4% best=84.9% 264s
+  ep=15 val_acc=86.9% best=87.3% 398s
+  ep=20 val_acc=87.4% best=88.1% 534s
+
+============================================================
+Test: generation-trained correction heads
+============================================================
+  Baseline:  5836/8607 (67.8%)
+  Corrected: 5547/8607 (64.4%)
+  Delta:     -289/8607 (-3.4pp)
+  Prompt-trained heads: +13.8pp. Gen-trained heads: -3.4pp
+
+  Full answer generation with corrections:
+  Corrected generation accuracy: 4/20 (20%)
+  (Baseline was: 40.0% on full 50)
