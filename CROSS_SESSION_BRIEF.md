@@ -3,74 +3,41 @@
 
 ## Narrative Summary
 
-This project began as a comparison of 47 LoRA adapter variants (Phase 1-2),
-then evolved into a system for **online continual learning via flow matching
-over adapter weights** (Phase 3), and is now transitioning into **latent
-reasoning via flow matching over thought trajectories** (Phase 4).
+This project evolved from LoRA adapter comparison (Phase 1-2) through online
+continual learning (Phase 3) into **latent reasoning via flow matching over
+thought trajectories** (Phase 4-5). The current session (June 12) produced
+8 new tags and definitive proof for three steering mechanisms.
 
-### What Was Tried (Phase 3 — Flow Matching Over Weights)
+### Phase 4: Flow Matching Over Thoughts (Tags: v0.21-26)
 
-1. **StreamFusion-LoRA** (v0.1): PerceiverFusion bottleneck + TAF routing +
-   expert pool for online continual learning. Worked well — eval PPL dropped
-   78% across 9 segments on Qwen3.5-2B.
+**Finding**: Thoughts HAVE structure (R²=0.62 TrajectoryTransformer, R²=0.75
+reasoning-step trajectories), weights DON'T (R²≈0).
 
-2. **Expert variants** (v0.2-0.3): 20+ architectural variants tested via
-   HybridStreamExpert. BVA (bidirectional+vectors+norm) best overall. AFA
-   (annealed tanh) best unorthodox variant.
+Key results:
+- **TrajectoryTransformer** (direct self-attention over 23 hidden states) beats
+  the Perceiver bottleneck (R²=0.62 vs 0.42) — removing the compression
+  bottleneck recovers lost signal
+- **Reasoning-step trajectories** (token-to-token) achieve R²=0.75 — higher than
+  layer-to-layer (0.62) because they capture reasoning evolution, not just
+  layer computation
+- **Reading heads**: r=0.86 correlation with token perplexity from frozen
+  Perceiver latents — latents strongly encode uncertainty
 
-3. **Weight flow matching** (v0.10-0.12): Trained a velocity field v_θ(W_t, t, ctx)
-   to predict weight changes from SGD trajectories. **Perfect training fit
-   (MSE ≈ 0), but predicts zero on held-out data.** The conditioning
-   (mean hidden state + gradient) is information-theoretically insufficient.
+### Phase 5: Steering Mechanisms (Tags: v0.27-33)
 
-4. **Diffusion denoising** (v0.13-0.18): Added noise prediction head + separate
-   decode layers. **Denoising stuck at MSE=1.0** — clean adapter weights are
-   random, no manifold to learn. Flow matching works; denoising doesn't.
+Three steering mechanisms validated:
 
-5. **Stagnation penalty + alignment filtering** (v0.19-0.20): Penalized zero
-   velocity predictions. Filtered training data to only keep trajectory steps
-   where SGD update aligned with gradient (cos > 0.3). **Prevented collapse,
-   but flow still ≈ zero on held-out real text** (Flow: 4.10, SGD: 1.52).
+| Mechanism | Metric | When It Works | When It Fails |
+|-----------|--------|--------------|---------------|
+| **Logit correction** | +13.8pp per-token accuracy | Prompt data | Generation (distribution shift → 0%) |
+| **Layer-0 injection** | 100% divergence at α=2.0 | Always (24× amplification) | Never tested on accuracy |
+| **KV-cache steering** | 85-90% divergence at α=0.1 | Geometrically viable (cos_v=0.94) | Signal = noise at binary metric |
 
-6. **2B model trajectories** (v0.20): Generated 50 persistent trajectories
-   from Qwen3.5-2B (2048-dim hidden state, 6144-dim context). Reusable
-   across all training approaches.
-
-### What Worked
-
-| Component | Status |
-|-----------|--------|
-| StreamFusion online continual learning | ✅ Works (78% PPL reduction) |
-| Flow matching training fit | ✅ MSE ≈ 0 on training data |
-| Closed-form SVD optimal update | ✅ 29.8% loss reduction in 1 step |
-| Hyperparameter sweep infrastructure | ✅ Batch_size=20 optimal, 21 sps |
-| Pre-computed trajectory storage | ✅ 50 trajectories, reusable |
-| Dynamic K (entropy + growth) | ✅ Implemented |
-| HybridStreamExpert soft flags | ✅ Implemented |
-| MetaController + ES evolution | ✅ Implemented |
-| BVA expert variant | ✅ Best overall (1269 PPL) |
-
-### What Didn't Work
-
-| Component | Status | Why |
-|-----------|--------|-----|
-| **Weight generalization to test data** | ❌ Flow ≈ zero on held-out | Conditioning insufficiency |
-| **Diffusion denoising on weights** | ❌ MSE=1.0 | Clean weights are unstructured |
-| **DDIM generation** | ❌ Worse than zero | Error amplification |
-| **ES evolution** | ⚠️ Insufficient | Population variance too low |
-
-### Current Best Hypothesis
-
-The weight manifold is fundamentally unstructured — adapter weights are
-initialized randomly and SGD moves them slightly. **Flow matching over
-weights fails to generalize because there's no structure to learn.**
-
-The solution is to shift from **weight-space flow matching** to
-**latent-space flow matching** — apply the same PerceiverFusion +
-WeightDiffusion architecture to thought trajectories (hidden states of
-a language model) instead of weight trajectories. Thoughts HAVE structure
-(attention patterns, layer activations, token representations) — diffusion
-and flow matching should work on this domain.
+**Critical discovery**: Last-layer steering is geometrically impossible
+(<1% divergence at α=100). Adding velocity to the last hidden state and
+projecting through the LM head doesn't change token selection because the
+velocity lives in a subspace orthogonal to the LM head's projection directions.
+KV-cache steering avoids this by modifying what FUTURE tokens attend to.
 
 ## Key Decisions
 
@@ -222,41 +189,87 @@ delta-uncertainty (change from previous token).
   Pass 1: `model.generate()` (fast, uses KV cache)
   Pass 2: single full forward pass → Perceiver → reading head per token
 
+## Phase 5b: Three Steering Mechanisms (v0.27-33)
+
+### Mechanism 1: Logit Correction (latents → logit offsets)
+
+| Variant | Per-token accuracy | Generation accuracy |
+|---------|-------------------|---------------------|
+| 1 head (prompt-trained) | +12.6pp | 0% (distribution shift) |
+| 3 heads ensemble | +13.8pp | 0% |
+| **3 heads (gen-trained)** | **-3.4pp** | **20%** |
+
+### Mechanism 2: Layer-0 Velocity Injection
+
+| α | Token change rate | Notes |
+|---|-------------------|-------|
+| 0.0 | 0.35% | Baseline (no injection) |
+| 0.5 | ~60% | Changes most tokens |
+| 2.0 | 100% | Catastrophic divergence |
+
+### Mechanism 3: KV-Cache Steering (Phase 1)
+
+| Metric | Value |
+|--------|-------|
+| Geometric alignment (cos_v, layer 23) | 0.94 |
+| Divergence rate (α=0.1) | 85-90% |
+| Noise control | 95% (signal ≈ noise at binary metric) |
+| Next step | Phase 3: downstream accuracy metric |
+
+### The Three Delegations (Conceptual Diffuser Analysis)
+
+All available via `delegation_read(<id>)`:
+- **maximum-amethyst-crow**: Structured 3-phase KV-cache plan with noise controls
+- **adequate-emerald-wildfowl**: Reading head as central gateway controller, multi-scale velocity fusion
+- **gradual-azure-wasp**: 22 assumptions audited (7 wrong), RL correction, SVD-targeted flow, attention diffusion
+
+### Three Delegation Consensus
+
+1. **Reading head (r=0.86) should be the central controller** — gate all interventions by ppl_pred
+2. **Distribution shift is fixable** — train on generation data, use RL, or confidence-weighted interpolation
+3. **KV-cache steering is geometrically viable** — pre-flight confirmed, needs accuracy metric
+
 ## Open Questions (Ranked by Impact)
 
 | # | Question | Why It Matters | What Would Answer It |
 |---|----------|---------------|---------------------|
-| 1 | Can MetaController uncertainty threshold improve reasoning accuracy? | Direct test of adaptive compute. | Compare GSM8K accuracy with/without MetaController. |
-| 2 | What's the optimal uncertainty threshold τ? | Too low → unnecessary compute. Too high → missed opportunities. | Sweep τ=0.1-0.9 on GSM8K validation. |
-| 3 | Does velocity steering + uncertainty gating outperform either alone? | Tests if both components provide additive benefit. | Ablation study on GSM8K. |
-| 4 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 with DynamicPerceiverWrapper. |
-| 5 | Does reasoning-step flow matching work better than layer-to-layer? | Which formulation for latent reasoning? | Generate 1000+ reasoning-step trajectories, compare R². |
+| 1 | Can PPL-modulated correction (α = f(ppl_pred)) fix the distribution shift? | Highest-ROI next experiment | Compare uniform vs ppl-gated correction on GSM8K generation |
+| 2 | Does KV-cache steering improve downstream accuracy? | Need better metric than "does token change" | Phase 3: GSM8K accuracy with KV steering |
+| 3 | Does multi-scale velocity fusion (TT + Perceiver ensemble) achieve R² > 0.78? | Independent errors improve prediction | Compute inverse-variance weighted ensemble |
+| 4 | Can RL-trained correction heads (REINFORCE) learn to steer at generation? | Directly optimizes for what we care about | Implement REINFORCE training loop |
+| 5 | What's the optimal uncertainty threshold τ for PPL gating? | Too low → unnecessary compute. Too high → missed opportunities. | Sweep τ on GSM8K validation |
 
-### Key Commands to Start
+### Key Commands to Resume
 
 ```bash
-# The current project state is fully committed.
-# To resume:
 cd /home/filip/Projects/Personal/AI/RankAdaptation
-git log --oneline -5
-cat FULL_SESSION_RECOVERY.md    # complete project state
-cat IDEAS_BACKLOG.md            # all open ideas
 
-# For the latent reasoning pivot, read:
-cat thoughts/latent_reasoning_analysis.md
-cat thoughts/self_modulating_transformer_architecture.md
+# Check model checkpoints exist:
+ls -la best_*.pt best_head_*.pt
 
-# Existing pre-computed trajectories:
-ls trajectories_2B/             # 50 trajectories from Qwen3.5-2B
+# Three delegation outputs:
+delegation_read("maximum-amethyst-crow")   # KV-cache plan
+delegation_read("adequate-emerald-wildfowl") # Reading head controller  
+delegation_read("gradual-azure-wasp")      # Assumption audit, RL/SVD
 
-# To verify the stagnation-trained model works:
-python3 run_diffusion_flow_eval.py
+# KV-cache results:
+cat kv_cache_phase1.log | tail -15
 
-# To generate more 2B trajectories:
-python3 generate_trajectories.py --model 2B --n-traj 50 --output ./trajectories_2B/
+# Distribution shift evidence:
+cat e2e_results.json
+
+# Run correction head (Phase 1):
+python3 run_logit_correction.py --n-test 50
+
+# Run KV-cache Phase 1:
+python3 kv_cache_phase1.py
+
+# Train reasoning-step TT:
+python3 train_reasoning_transformer.py \
+  --trajectories /run/media/filip/B522-875D/Datasets/project_data/reasoning_trajs_5k/all_trajs.pt
 ```
 
 ---
 
-*Recovery completed at: 2026-06-12 00:30 UTC*
-*System health: healthy — 20 tags, 53 commits, all changes committed*
+*Recovery completed at: 2026-06-12 19:00 UTC*
+*System health: healthy — 34 tags, 54 commits, all changes committed*
