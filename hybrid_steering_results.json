@@ -1,0 +1,22 @@
+{
+  "0.0": {
+    "correct": 2,
+    "total": 20,
+    "accuracy": 0.1
+  },
+  "0.1": {
+    "correct": 1,
+    "total": 20,
+    "accuracy": 0.05
+  },
+  "0.3": {
+    "correct": 1,
+    "total": 20,
+    "accuracy": 0.05
+  },
+  "0.5": {
+    "correct": 1,
+    "total": 20,
+    "accuracy": 0.05
+  }
+}
