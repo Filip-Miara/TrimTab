@@ -192,23 +192,38 @@ python3 generate_thought_trajectories.py --model 2B --n-traj 500 --output ./new_
 python3 run_thought_flow_eval.py --model-path best_perceiver.pt
 ```
 
-### Next: Phase 4b (Amplify R² from 0.29 → 0.80+)
+### Scale Results: Phase 4b (v0.22.0-scaling)
 
-1. **Scale data**: 5000+ trajectories (takes ~10 min to generate)
-2. **Scale model**: d_latent=128, n_latents=32, 4 Perceiver blocks
-3. **Improve conditioning**: Use full text embedding (not just h[0])
-4. **Reading heads**: Linear probes on Perceiver latents → uncertainty/concept extraction
-5. **MetaController**: Use reading heads to decide reasoning mode
+| Config | Epochs | R² | Notes |
+|--------|--------|----|-------|
+| 500 trajs, 0.76M model | 200 | 0.29 | Phase transition at ~ep 10 |
+| 500 trajs, 2.2M model | 100 | **0.42** | Phase transition at ~ep 8 |
+| 5000 trajs, 0.76M model | 30 | 0.30 | More data doesn't help small model |
+| 5000 trajs, 2.2M model | 200 | **0.42** | Same ceiling as 500 trajs! |
+| 5000 trajs, 8.9M model | 80 | 0.04 | 64 latents/23 inputs — stalls |
+
+**Key insight**: R² saturates at ~0.42 regardless of data (500→5000 trajs). The ceiling is architectural — the Perceiver's cross-attention to 23 hidden states limits its ability to learn finer velocity structure. The ratio of latents to inputs matters: 32:23 works, 64:23 stalls.
+
+### Next: Phase 5 — Latent Reasoning Intervention
+
+Instead of more capacity, use the trained flow field to IMPROVE reasoning:
+
+1. **Week 1**: Build intervention pipeline — during generation, read hidden state → Perceiver predicts velocity → gently apply to steer toward "flow-matched" direction
+2. **Week 2**: Test on GSM8K arithmetic — does nudging toward the predicted velocity improve accuracy?
+3. **Week 3**: Add reading heads (linear probes on Perceiver latents) → extract uncertainty, contradiction
+4. **Week 4**: MetaController arbitration — use reading heads to decide when to intervene
+
+The intervention approach bypasses the R² ceiling: we don't need perfect velocity predictions to nudge the model in the right direction. Even R²=0.42 provides a useful signal.
 
 ## Open Questions (Ranked by Impact)
 
 | # | Question | Why It Matters | What Would Answer It |
 |---|----------|---------------|---------------------|
-| 1 | Can we push thought flow matching R² to 0.80+ with more data/capacity? | If yes, the latent reasoning pipeline is viable. | Train with 5000+ trajectories and larger model. |
-| 2 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 on a small reasoning task with DynamicPerceiverWrapper. |
+| 1 | Can flow-matched velocity nudging improve reasoning accuracy? | Direct test of practical utility. | Intervene during GSM8K generation, measure accuracy delta. |
+| 2 | What is the optimal latent dimensionality K for a "thought"? | Too few → collapse. Too many → noise. | Sweep K=4,8,16,32,64 with DynamicPerceiverWrapper. |
 | 3 | Do reading heads extract useful concepts from Perceiver latents? | Would provide conditioning signal for MetaController. | Train linear probes on thought latents with contrastive pairs. |
-| 4 | Does reasoning-step (token-to-token) flow matching work better than layer-to-layer? | Both are valid formulations for latent reasoning. | Generate 1000+ reasoning-step trajectories, train and compare R². |
-| 5 | Can we use the Perceiver as a reasoning engine (generate trajectories at inference)? | The end goal: generate better reasoning trajectories. | Integrate flow → sample → evaluate on reasoning tasks. |
+| 4 | Does reasoning-step flow matching work better than layer-to-layer? | Which formulation for latent reasoning? | Generate 1000+ reasoning-step trajectories, compare R². |
+| 5 | What's the optimal intervention strength (gate value)? | Too strong → catastrophic. Too weak → no effect. | Grid search gating during inference. |
 
 ### Key Commands to Start
 
