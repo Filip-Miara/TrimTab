@@ -81,14 +81,17 @@ class ThoughtDiffusion(nn.Module):
         self,
         hidden_seq: torch.Tensor,
         text_ctx: torch.Tensor,
-    ) -> torch.Tensor:
+        return_latents: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Predict velocities for full trajectory.
 
         Args:
             hidden_seq: (B, L, d_model) hidden states across L layers
             text_ctx: (B, d_text_ctx) text conditioning
+            return_latents: if True, also return (B, n_latents, d_latent) latents
         Returns:
             velocity: (B, L, d_model) predicted velocity at each layer
+            or (velocity, latents) if return_latents=True
         """
         B, L, D = hidden_seq.shape
 
@@ -106,6 +109,8 @@ class ThoughtDiffusion(nn.Module):
         h_out = self.norm_out(h_out)
 
         velocity = self.decode(h_out)
+        if return_latents:
+            return velocity, Z
         return velocity
 
 
