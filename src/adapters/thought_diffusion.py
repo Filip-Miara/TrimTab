@@ -44,11 +44,11 @@ class ThoughtDiffusion(nn.Module):
         self,
         d_model: int = 2048,
         n_layers: int = 24,
-        d_latent: int = 64,
-        n_latents: int = 16,
+        d_latent: int = 128,
+        n_latents: int = 32,
         n_heads: int = 4,
         d_text_ctx: int = 128,
-        n_perceiver_blocks: int = 3,
+        n_perceiver_blocks: int = 4,
     ):
         super().__init__()
         self.d_model = d_model

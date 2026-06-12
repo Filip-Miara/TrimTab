@@ -20,11 +20,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--trajectories", type=str, default="./thought_trajectories_500/")
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--trajectories", type=str, default="./thought_trajs_5k/")
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--d-latent", type=int, default=64)
-    parser.add_argument("--n-latents", type=int, default=16)
+    parser.add_argument("--d-latent", type=int, default=128)
+    parser.add_argument("--n-latents", type=int, default=32)
     args = parser.parse_args()
 
     with open(os.path.join(args.trajectories, "meta.json")) as f:

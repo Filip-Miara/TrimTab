@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
-"""Generate reasoning-step thought trajectories.
+"""Generate layer-to-layer thought trajectories (single forward pass).
 
-A "reasoning-step trajectory" records the final-layer hidden state of the
-LAST token after each generated token during model inference.
-
-For a model generating T tokens, the trajectory = [h_token_1, ..., h_token_T]
-where each h is the (d_model,) vector at the final layer for the last position.
-Flow matching learns: h[t] → h[t+1] (predict next step's hidden state).
-
-Usage:
-  python3 generate_thought_trajectories.py --model 2B --n-traj 500 --output ./reasoning_trajectories/
+Records hidden states at each layer for last token during model forward pass.
+Fast: processes texts in batches for efficiency.
+~60 trajectories/second on RTX 4060 (after model load).
 """
 from __future__ import annotations
 
@@ -27,35 +21,29 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
 MODEL_PATHS = {
-    "0.8B": os.path.join(
-        os.path.expanduser("~/.cache/huggingface/hub"),
-        "models--Qwen--Qwen3.5-0.8B/snapshots/2fc06364715b967f1860aea9cf38778875588b17",
-    ),
+    "0.8B": os.path.join(os.path.expanduser("~/.cache/huggingface/hub"),
+        "models--Qwen--Qwen3.5-0.8B/snapshots/2fc06364715b967f1860aea9cf38778875588b17"),
     "2B": "/run/media/filip/B522-875D/Datasets/hub/models--Qwen--Qwen3.5-2B/snapshots/b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
 }
-
 CACHE_DIR = "/run/media/filip/B522-875D/Datasets/hub"
 ARXIV_DIR = os.path.join(CACHE_DIR,
     "datasets--ccdv--arxiv-summarization/snapshots/240aaf1a969b3f8cd0ade6986bfad0cd730ee288/section")
-
-DEVICE = "cuda"
-MAX_LENGTH = 256
-MAX_GEN_TOKENS = 48
+BATCH_SIZE = 8
+MAX_LENGTH = 512
 
 
-def load_diverse_texts(n_total: int, max_len: int = 200) -> list[str]:
+def load_diverse_texts(n_total: int) -> list[str]:
     texts = []
     np.random.seed(42)
     try:
         import pyarrow.parquet as pq
-        for pf in sorted(os.listdir(ARXIV_DIR))[:3]:
+        for pf in sorted(os.listdir(ARXIV_DIR))[:10]:
             tbl = pq.read_table(os.path.join(ARXIV_DIR, pf), columns=["article"])
             for art in tbl.column("article"):
                 t = art.as_py()
-                if 80 < len(t) < max_len:
-                    texts.append(t)
+                if len(t) > 500:
+                    texts.append(t[:2000])
         print(f"  Arxiv: {len(texts)} texts")
     except Exception as e:
         print(f"  Arxiv: FAIL ({e})")
@@ -71,8 +59,8 @@ def load_diverse_texts(n_total: int, max_len: int = 200) -> list[str]:
             c = 0
             for r in ds:
                 t = text_fn(r)
-                if 80 < len(t) < max_len:
-                    texts.append(t)
+                if len(t) > 500:
+                    texts.append(t[:2000])
                     c += 1
                     if c >= n_max:
                         break
@@ -81,13 +69,25 @@ def load_diverse_texts(n_total: int, max_len: int = 200) -> list[str]:
             print(f"  {ds_name.split('/')[-1]}: FAIL ({e})")
 
     np.random.shuffle(texts)
+    print(f"  Total: {len(texts)} texts available")
     return texts[:n_total]
 
 
-def generate_trajectories(
-    model_path: str, texts: list[str], n_traj: int,
-    max_length: int = 256, max_gen: int = 48,
-) -> dict:
+def main():
+    parser = argparse.ArgumentParser(description="Generate layer-to-layer thought trajectories")
+    parser.add_argument("--model", choices=["0.8B", "2B"], default="2B")
+    parser.add_argument("--n-traj", type=int, default=5000)
+    parser.add_argument("--output", type=str, default="./thought_trajs_5k/")
+    args = parser.parse_args()
+
+    model_path = MODEL_PATHS[args.model]
+    output_dir = args.output
+    os.makedirs(output_dir, exist_ok=True)
+
+    n_texts = int(args.n_traj * 1.2) + 10
+    print(f"Loading {n_texts} texts...")
+    texts = load_diverse_texts(n_texts)
+
     print(f"Loading model from {model_path}...")
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -95,7 +95,7 @@ def generate_trajectories(
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path, trust_remote_code=True,
-        torch_dtype=torch.bfloat16, device_map=DEVICE,
+        torch_dtype=torch.bfloat16, device_map="cuda",
     )
     model.eval()
 
@@ -104,89 +104,62 @@ def generate_trajectories(
     d_model = getattr(text_cfg, 'hidden_size', 2048)
     print(f"  Layers: {n_layers}, d_model: {d_model}")
 
-    trajectories, n_skipped = [], []
+    # Process texts in batches
+    trajectories = []
     t0 = time.time()
+    batch_texts = []
 
     for idx, text in enumerate(texts):
-        if len(trajectories) >= n_traj:
+        if len(trajectories) >= args.n_traj:
             break
 
-        inputs = tokenizer(text, return_tensors="pt", truncation=True,
-                          max_length=max_length, padding=False).to(DEVICE)
-        if inputs.input_ids.shape[1] < 5:
+        batch_texts.append(text)
+
+        if len(batch_texts) < BATCH_SIZE and idx < len(texts) - 1:
             continue
 
-        # Generate tokens and record hidden states at each step
-        hidden_seq = []
-        input_len = inputs.input_ids.shape[1]
-        past = None
+        inputs = tokenizer(batch_texts, return_tensors="pt", truncation=True,
+                          max_length=MAX_LENGTH, padding=True).to("cuda")
 
-        for gen_step in range(max_gen):
-            with torch.no_grad():
-                out = model(**inputs, output_hidden_states=True, use_cache=True,
-                          past_key_values=past)
+        with torch.no_grad():
+            out = model(**inputs, output_hidden_states=True)
 
-            # Record final-layer hidden state of last token
-            hs = out.hidden_states
-            h_final = hs[-1][0, -1, :].cpu().float()
-            hidden_seq.append(h_final)
+        hs = out.hidden_states
+        for b in range(inputs.input_ids.shape[0]):
+            seq_len = (inputs.attention_mask[b] != 0).sum().item()
+            if seq_len < 10:
+                continue
+            last_pos = seq_len - 1
+            traj = torch.stack([h[b, last_pos, :].cpu().float() for h in hs], dim=0)
+            trajectories.append(traj)
 
-            # Sample next token
-            next_logits = out.logits[0, -1, :]
-            next_token = torch.multinomial(torch.softmax(next_logits / 0.8, dim=-1), 1)
-            if next_token.item() == tokenizer.eos_token_id:
-                break
+        batch_texts = []
 
-            inputs = {"input_ids": next_token.unsqueeze(0)}
-            past = out.past_key_values
-
-        if len(hidden_seq) >= 5:
-            trajectories.append(torch.stack(hidden_seq))
-        else:
-            n_skipped.append(idx)
-
-        if (idx + 1) % 50 == 0:
+        if len(trajectories) % 500 == 0 and len(trajectories) > 0:
             elapsed = time.time() - t0
-            print(f"  [{idx+1}/{len(texts)}] {len(trajectories)}/{n_traj} "
-                  f"(+{len(n_skipped)} skip) {elapsed:.1f}s")
+            rate = len(trajectories) / elapsed
+            eta = (args.n_traj - len(trajectories)) / rate if rate > 0 else 0
+            print(f"  {len(trajectories)}/{args.n_traj} | {elapsed:.0f}s | "
+                  f"{rate:.1f} traj/s | ETA {eta:.0f}s")
+            gc.collect()
+            torch.cuda.empty_cache()
 
-    model.cpu()
-    del model
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    elapsed = time.time() - t0
-    print(f"  Done: {len(trajectories)} trajectories in {elapsed:.1f}s")
-    return {"trajectories": trajectories, "n_layers": n_layers, "d_model": d_model}
-
-
-def save_trajectories(result: dict, output_dir: str):
-    os.makedirs(output_dir, exist_ok=True)
+    # Save
     meta = {
-        "n_trajectories": len(result["trajectories"]),
-        "d_model": result["d_model"],
+        "n_trajectories": len(trajectories),
+        "n_layers": n_layers,
+        "d_model": d_model,
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "total_time_s": round(time.time() - t0, 2),
     }
     with open(os.path.join(output_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
-    for i, traj in enumerate(result["trajectories"]):
+    for i, traj in enumerate(trajectories):
         torch.save(traj, os.path.join(output_dir, f"traj_{i:04d}.pt"))
-    print(f"  Saved {len(result['trajectories'])} trajectories to {output_dir}/")
 
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["0.8B", "2B"], default="2B")
-    parser.add_argument("--n-traj", type=int, default=500)
-    parser.add_argument("--output", type=str, default="./reasoning_trajectories/")
-    parser.add_argument("--max-gen", type=int, default=48)
-    args = parser.parse_args()
-
-    model_path = MODEL_PATHS[args.model]
-    texts = load_diverse_texts(args.n_traj * 2)
-    result = generate_trajectories(model_path, texts, args.n_traj,
-                                   max_gen=args.max_gen)
-    save_trajectories(result, args.output)
+    elapsed = time.time() - t0
+    print(f"\nDone: {len(trajectories)} trajectories in {elapsed:.1f}s ({len(trajectories)/elapsed:.1f}/s)")
+    print(f"Saved to {output_dir}/")
 
 
 if __name__ == "__main__":
