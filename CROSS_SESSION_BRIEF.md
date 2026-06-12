@@ -207,41 +207,20 @@ Trained on 90K tokens from GSM8K to predict token-level perplexity. Achieves r=0
 - `run_reading_heads.py` — Linear probe: latents → perplexity prediction
 - `src/adapters/thought_diffusion.py` — Added `return_latents=True` option
 
-### Next: Phase 5 — MetaController (Uncertainty-Guided Reasoning)
+### Phase 5: MetaController Uncertainty Analysis (v0.24.0-metacontroller)
 
-Build on two confirmed capabilities:
-1. **R²=0.42** flow matching on thought trajectories
-2. **r=0.86** reading heads for uncertainty detection
+| Finding | Result |
+|---------|--------|
+| Per-token uncertainty gap (correct vs incorrect) | 0.004 (weak) |
+| Top-10% high-uncertainty tokens: % from incorrect | 74% (vs 70% baseline, +4pp) |
 
-The MetaController architecture:
-```
-At each token generation step:
-  1. Forward pass → capture hidden states
-  2. Perceiver → predict velocity + extract latents
-  3. Reading head → compute uncertainty score
-  4. If uncertainty > threshold τ:
-     - Apply α × velocity to hidden states (steering)
-     - Increase temperature for broader exploration
-     - Or re-generate with modified state
-  5. If uncertainty < threshold τ:
-     - Pass-through (default generation)
-```
+The reading head's uncertainty signal IS real (r=0.86) but per-token predictive
+power for correctness is modest. Suggests need for windowed aggregation or
+delta-uncertainty (change from previous token).
 
-Implementation plan:
-1. **Week 1**: Build MetaController class + inference pipeline
-   - Load Perceiver + reading head
-   - Hook into model forward pass
-   - Per-token: read hidden states → Perceiver → reading head → gate decision
-2. **Week 2**: Implement adaptive compute
-   - If uncertainty > τ: latent CoT (extra iterations in latent space)
-   - If uncertainty < τ: continue normally
-   - Test on GSM8K: does accuracy improve?
-3. **Week 3**: Integrate flow steering
-   - Apply α × Perceiver velocity when uncertainty is high
-   - Measure: accuracy delta, generation quality, computational cost
-4. **Week 4**: End-to-end evaluation
-   - Compare: base model vs MetaController vs MetaController+steering
-   - Metrics: accuracy, tokens per answer, variance across seeds
+**Key file**: `run_metacontroller.py` — Two-pass analysis pipeline:
+  Pass 1: `model.generate()` (fast, uses KV cache)
+  Pass 2: single full forward pass → Perceiver → reading head per token
 
 ## Open Questions (Ranked by Impact)
 
