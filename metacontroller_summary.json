@@ -1,0 +1,189 @@
+{
+  "n_problems": 20,
+  "accuracy": 0.3,
+  "total_tokens": 9017,
+  "correct_uncertainty_mean": -0.09287957569818392,
+  "incorrect_uncertainty_mean": -0.08891103155747489,
+  "per_problem": [
+    {
+      "idx": 0,
+      "correct": true,
+      "predicted": "18",
+      "expected": "18",
+      "gen_len": 454,
+      "uncertainty_mean": -0.09062324990908152,
+      "uncertainty_std": 0.05104521198997004
+    },
+    {
+      "idx": 1,
+      "correct": false,
+      "predicted": "3.",
+      "expected": "3",
+      "gen_len": 416,
+      "uncertainty_mean": -0.09510359304448894,
+      "uncertainty_std": 0.055828421343566526
+    },
+    {
+      "idx": 2,
+      "correct": false,
+      "predicted": "000",
+      "expected": "70000",
+      "gen_len": 447,
+      "uncertainty_mean": -0.09010386938683405,
+      "uncertainty_std": 0.05690888814418125
+    },
+    {
+      "idx": 3,
+      "correct": false,
+      "predicted": "540.",
+      "expected": "540",
+      "gen_len": 425,
+      "uncertainty_mean": -0.0877945918167996,
+      "uncertainty_std": 0.04986769212108728
+    },
+    {
+      "idx": 4,
+      "correct": false,
+      "predicted": "13.33",
+      "expected": "20",
+      "gen_len": 501,
+      "uncertainty_mean": -0.08785537045315175,
+      "uncertainty_std": 0.05136315162863129
+    },
+    {
+      "idx": 5,
+      "correct": false,
+      "predicted": "80",
+      "expected": "64",
+      "gen_len": 444,
+      "uncertainty_mean": -0.09255829375491033,
+      "uncertainty_std": 0.05463912359611634
+    },
+    {
+      "idx": 6,
+      "correct": false,
+      "predicted": "260.",
+      "expected": "260",
+      "gen_len": 430,
+      "uncertainty_mean": -0.09409090932296199,
+      "uncertainty_std": 0.05111312175097851
+    },
+    {
+      "idx": 7,
+      "correct": false,
+      "predicted": "80",
+      "expected": "160",
+      "gen_len": 459,
+      "uncertainty_mean": -0.08713848212549223,
+      "uncertainty_std": 0.05642717697798543
+    },
+    {
+      "idx": 8,
+      "correct": false,
+      "predicted": "315.",
+      "expected": "45",
+      "gen_len": 494,
+      "uncertainty_mean": -0.09271133120024674,
+      "uncertainty_std": 0.05919797669353487
+    },
+    {
+      "idx": 9,
+      "correct": true,
+      "predicted": "460",
+      "expected": "460",
+      "gen_len": 450,
+      "uncertainty_mean": -0.09681813398738288,
+      "uncertainty_std": 0.05796964079444263
+    },
+    {
+      "idx": 10,
+      "correct": false,
+      "predicted": "186.",
+      "expected": "366",
+      "gen_len": 450,
+      "uncertainty_mean": -0.08567605788457311,
+      "uncertainty_std": 0.05373465926644029
+    },
+    {
+      "idx": 11,
+      "correct": true,
+      "predicted": "694",
+      "expected": "694",
+      "gen_len": 454,
+      "uncertainty_mean": -0.09850478811509546,
+      "uncertainty_std": 0.0547478919309272
+    },
+    {
+      "idx": 12,
+      "correct": false,
+      "predicted": "12",
+      "expected": "13",
+      "gen_len": 457,
+      "uncertainty_mean": -0.08321726010833139,
+      "uncertainty_std": 0.05895712848025217
+    },
+    {
+      "idx": 13,
+      "correct": true,
+      "predicted": "18",
+      "expected": "18",
+      "gen_len": 447,
+      "uncertainty_mean": -0.09039922424912936,
+      "uncertainty_std": 0.06089474657392278
+    },
+    {
+      "idx": 14,
+      "correct": true,
+      "predicted": "60",
+      "expected": "60",
+      "gen_len": 442,
+      "uncertainty_mean": -0.09274440734200516,
+      "uncertainty_std": 0.054931827594657784
+    },
+    {
+      "idx": 15,
+      "correct": false,
+      "predicted": "1",
+      "expected": "125",
+      "gen_len": 484,
+      "uncertainty_mean": -0.08077536866382488,
+      "uncertainty_std": 0.0654752977503314
+    },
+    {
+      "idx": 16,
+      "correct": false,
+      "predicted": "230.",
+      "expected": "230",
+      "gen_len": 443,
+      "uncertainty_mean": -0.08733980015969287,
+      "uncertainty_std": 0.06001027963962544
+    },
+    {
+      "idx": 17,
+      "correct": false,
+      "predicted": "57500.",
+      "expected": "57500",
+      "gen_len": 447,
+      "uncertainty_mean": -0.09666924536232346,
+      "uncertainty_std": 0.05711638585294868
+    },
+    {
+      "idx": 18,
+      "correct": true,
+      "predicted": "7",
+      "expected": "7",
+      "gen_len": 418,
+      "uncertainty_mean": -0.08777583347807269,
+      "uncertainty_std": 0.050088129070456754
+    },
+    {
+      "idx": 19,
+      "correct": false,
+      "predicted": "4",
+      "expected": "6",
+      "gen_len": 455,
+      "uncertainty_mean": -0.08497075861176619,
+      "uncertainty_std": 0.054340192757778905
+    }
+  ]
+}
