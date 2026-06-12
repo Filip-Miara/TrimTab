@@ -1,0 +1,21 @@
+{
+  "baseline": {
+    "mode": "baseline",
+    "correct": 4,
+    "total": 20,
+    "accuracy": 0.2
+  },
+  "full": {
+    "mode": "full",
+    "correct": 0,
+    "total": 20,
+    "accuracy": 0.0
+  },
+  "ppl_modulated": {
+    "mode": "ppl_modulated",
+    "correct": 1,
+    "total": 20,
+    "accuracy": 0.05,
+    "avg_alpha": 0.4264569827147351
+  }
+}

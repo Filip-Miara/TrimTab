@@ -1,0 +1,37 @@
+{
+  "baseline": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667,
+    "avg_alpha": 0.0,
+    "divergence_pct": 0.0
+  },
+  "full_prompt": {
+    "correct": 0,
+    "total": 30,
+    "accuracy": 0.0,
+    "avg_alpha": 1.0,
+    "divergence_pct": 14.1
+  },
+  "full_gen": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667,
+    "avg_alpha": 1.0,
+    "divergence_pct": 11.0
+  },
+  "hard_prompt_t1.5": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667,
+    "avg_alpha": 0.0010063737001006373,
+    "divergence_pct": 0.10063737001006373
+  },
+  "hard_gen_t1.5": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667,
+    "avg_alpha": 0.0010063737001006373,
+    "divergence_pct": 0.10063737001006373
+  }
+}
