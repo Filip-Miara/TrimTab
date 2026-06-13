@@ -1,0 +1,32 @@
+{
+  "L3": {
+    "correct": 3,
+    "total": 30,
+    "accuracy": 0.1
+  },
+  "L7": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667
+  },
+  "L11": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667
+  },
+  "L15": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667
+  },
+  "L19": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667
+  },
+  "L23": {
+    "correct": 2,
+    "total": 30,
+    "accuracy": 0.06666666666666667
+  }
+}
