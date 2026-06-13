@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "generated": "2026-06-13",
+    "mode": "analytic",
+    "scoring_dimensions": ["Novelty", "Feasibility", "Coherence", "Risk", "Robustness"],
+    "quality_index_formula": "(Novelty + Feasibility + Coherence + (6 - Risk) + Robustness) / 5"
+  },
+  "synthetic_variants": {
+    "SYN-1": { "Novelty": 5, "Feasibility": 2, "Coherence": 3, "Risk": 4, "Robustness": 2, "Quality_Index": 2.8 },
+    "SYN-2": { "Novelty": 4, "Feasibility": 3, "Coherence": 3, "Risk": 3, "Robustness": 3, "Quality_Index": 3.2 },
+    "SYN-3": { "Novelty": 4, "Feasibility": 2, "Coherence": 3, "Risk": 4, "Robustness": 2, "Quality_Index": 2.6 },
+    "SYN-4": { "Novelty": 5, "Feasibility": 2, "Coherence": 2, "Risk": 5, "Robustness": 1, "Quality_Index": 2.2 },
+    "SYN-5": { "Novelty": 3, "Feasibility": 4, "Coherence": 4, "Risk": 2, "Robustness": 4, "Quality_Index": 3.8 },
+    "SYN-6": { "Novelty": 4, "Feasibility": 2, "Coherence": 3, "Risk": 4, "Robustness": 2, "Quality_Index": 2.6 },
+    "SYN-7": { "Novelty": 3, "Feasibility": 3, "Coherence": 3, "Risk": 3, "Robustness": 3, "Quality_Index": 3.0 },
+    "SYN-8": { "Novelty": 5, "Feasibility": 1, "Coherence": 1, "Risk": 5, "Robustness": 1, "Quality_Index": 1.8 },
+    "SYN-9": { "Novelty": 2, "Feasibility": 4, "Coherence": 4, "Risk": 2, "Robustness": 4, "Quality_Index": 3.6 },
+    "SYN-10": { "Novelty": 4, "Feasibility": 2, "Coherence": 3, "Risk": 4, "Robustness": 2, "Quality_Index": 2.6 },
+    "SYN-11": { "Novelty": 4, "Feasibility": 3, "Coherence": 3, "Risk": 3, "Robustness": 3, "Quality_Index": 3.2 },
+    "SYN-12": { "Novelty": 3, "Feasibility": 2, "Coherence": 4, "Risk": 4, "Robustness": 3, "Quality_Index": 2.8 }
+  },
+  "top_ranked_by_quality_index": [
+    { "id": "SYN-5", "quality_index": 3.8, "description": "DeepSeek V4 with dense tuning islands instead of hash routing" },
+    { "id": "SYN-9", "quality_index": 3.6, "description": "Remove shared expert from all three architectures" },
+    { "id": "SYN-2", "quality_index": 3.2, "description": "CSA with adaptive top-k" },
+    { "id": "SYN-11", "quality_index": 3.2, "description": "Qwen3.5 MCP + Kimi Agent Swarm" }
+  ],
+  "weakness_summary": {
+    "critical": 6,
+    "major": 17,
+    "minor": 8
+  },
+  "disparity_summary": {
+    "resolved": 7,
+    "unresolved_fundamental": 2,
+    "unresolved_by_type": {
+      "DISP-4": "auxiliary loss vs. no auxiliary loss — needs empirical resolution",
+      "DISP-9": "is softmax attention necessary? — requires controlled experiment",
+      "DISP-7": "optimal training precision — architecture-dependent, no universal answer"
+    }
+  }
+}

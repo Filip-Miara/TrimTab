@@ -143,4 +143,37 @@ This session explored **velocity-based latent steering** across multiple models 
 /run/media/filip/B522-875D/Datasets/project_data/
   smolm2_gen_trajs/          — 10 batches × 5K = 50K SmolLM2 trajectories
   qwen25_7b_gen_trajs/       — 49 batches × ~1K = 49K Qwen2.5-7B trajectories
-```
+
+---
+
+## Proposed Next Experiments (from end-of-session analysis)
+
+### A. Contrastive Steering Refinements (currently running)
+- Single-layer contrastive sweep on Math-1.5B (28 layers × 50 problems)
+- Expected: identify trim-tab layers for contrastive direction
+
+### B. Asymmetric α Steering
+- Use α_c and α_i independently: h' = h + α_c · TT_correct(h) − α_i · TT_incorrect(h)
+- Rationale: attraction toward correct and repulsion from incorrect may need different strengths
+- Sweep α_c ∈ {0.01, 0.05, 0.1}, α_i ∈ {0.01, 0.05, 0.1} on best trim-tab layers
+
+### C. Multi-Layer Combinations
+- Test L2+L8, L5+L8, L2+L5+L8 (pairs and triplets of best layers)
+- Per-layer α scaling: α[l] varies per layer, not global
+
+### D. Multi-Head Contrastive Ensembles
+- Train N (3-5) independent TT_correct/TT_incorrect pairs on bootstrapped trajectory subsets
+- v_ensemble = mean(TT_correct_k) − mean(TT_incorrect_k)
+- Benefits: bagging reduces variance, ensemble disagreement gives steering confidence
+- Parallels Phase 3 DiMAE approach but applied to velocity prediction
+
+### E. Layer-Specific α Vector
+- Instead of global α, learn α[l] per layer via sweep or optimization
+- Could be learned as a lightweight MLP from trajectory features
+
+### F. Performance Optimization
+- `torch.compile()` on generation forward pass to reduce Python overhead
+- Current: 50% GPU utilization (small model: 23ms compute + 23ms Python overhead per step)
+- torch.compile could cut Python overhead by ~30-50%
+- Alternative: C++/Rust inference (vLLM, Candle) but requires TT reimplementation
+

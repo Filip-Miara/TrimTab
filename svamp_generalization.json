@@ -1,0 +1,17 @@
+{
+  "baseline": {
+    "correct": 31,
+    "total": 100,
+    "accuracy": 0.31
+  },
+  "L8": {
+    "correct": 35,
+    "total": 100,
+    "accuracy": 0.35
+  },
+  "L9": {
+    "correct": 17,
+    "total": 100,
+    "accuracy": 0.17
+  }
+}

@@ -15,7 +15,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 DEVICE = "cuda"
 CACHE_DIR = "/run/media/filip/B522-875D/Datasets/hub"
 OUTPUT_DIR = "/run/media/filip/B522-875D/Datasets/project_data"
-MAX_GEN = 100
+MAX_GEN = 200
 D_MODEL = 3584
 N_LAYERS = 28
 BATCH_SIZE = 1000
