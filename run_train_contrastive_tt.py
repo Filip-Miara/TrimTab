@@ -36,7 +36,7 @@ def compute_metrics(v_pred, v_target):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["correct", "incorrect"], required=True)
+    parser.add_argument("--mode", choices=["correct", "incorrect", "all"], required=True)
     parser.add_argument("--data-dir", type=str, default=DATA_DIR)
     parser.add_argument("--d-input", type=int, default=D_INPUT)
     parser.add_argument("--n-layers", type=int, default=N_LAYERS)
@@ -53,22 +53,26 @@ def main():
     n_train_total = 0
     for f in batch_files:
         d = torch.load(f, map_location="cpu")
-        mask = d["is_correct"] if args.mode == "correct" else ~d["is_correct"]
+        if args.mode == "all":
+            mask = torch.ones(len(d["is_correct"]), dtype=torch.bool)
+        else:
+            mask = d["is_correct"] if args.mode == "correct" else ~d["is_correct"]
         n_train_total += mask.sum().item()
         del d
     print(f"Total {args.mode} trajectories: {n_train_total}", flush=True)
 
     # Load validation (one batch file), split by correctness
     val_data = torch.load(val_file, map_location="cpu")
-    val_mask = val_data["is_correct"] if args.mode == "correct" else ~val_data["is_correct"]
+    val_mask = val_data["is_correct"] if args.mode == "correct" else (
+        torch.ones(len(val_data["is_correct"]), dtype=torch.bool) if args.mode == "all" else ~val_data["is_correct"])
     val_h = val_data["hidden_seqs"][val_mask].float()
     val_v = val_data["velocity_targets"][val_mask].float()
     print(f"Val shape: {val_h.shape}", flush=True)
     if len(val_h) == 0:
         print(f"WARNING: No {args.mode} trajectories in val file! Using first 100 from train instead.", flush=True)
-        # Fallback: take some from first training file
         d = torch.load(batch_files[0], map_location="cpu")
-        m = d["is_correct"] if args.mode == "correct" else ~d["is_correct"]
+        m = d["is_correct"] if args.mode == "correct" else (
+            torch.ones(len(d["is_correct"]), dtype=torch.bool) if args.mode == "all" else ~d["is_correct"])
         val_h = d["hidden_seqs"][m][:100].float()
         val_v = d["velocity_targets"][m][:100].float()
         del d
@@ -98,7 +102,8 @@ def main():
 
         for bf in batch_files:
             data = torch.load(bf, map_location="cpu")
-            mask = data["is_correct"] if args.mode == "correct" else ~data["is_correct"]
+            mask = data["is_correct"] if args.mode == "correct" else (
+                torch.ones(len(data["is_correct"]), dtype=torch.bool) if args.mode == "all" else ~data["is_correct"])
             if mask.sum() == 0:
                 del data; continue
             h = data["hidden_seqs"][mask].float()
