@@ -3,6 +3,12 @@ __pycache__/
 .codenomad/
 sf_hybrid_*.json
 results*.json
+*.pt
+data/
+*.log
+*.log.*
+*.o
+*.so
 lifecycle_*.json
 *.pt
 thought_trajectories*/
