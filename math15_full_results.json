@@ -1,0 +1,147 @@
+{
+  "baseline": {
+    "correct": 45,
+    "total": 100,
+    "accuracy": 0.45
+  },
+  "L0": {
+    "correct": 24,
+    "total": 100,
+    "accuracy": 0.24
+  },
+  "L1": {
+    "correct": 36,
+    "total": 100,
+    "accuracy": 0.36
+  },
+  "L2": {
+    "correct": 33,
+    "total": 100,
+    "accuracy": 0.33
+  },
+  "L3": {
+    "correct": 39,
+    "total": 100,
+    "accuracy": 0.39
+  },
+  "L4": {
+    "correct": 43,
+    "total": 100,
+    "accuracy": 0.43
+  },
+  "L5": {
+    "correct": 9,
+    "total": 100,
+    "accuracy": 0.09
+  },
+  "L6": {
+    "correct": 9,
+    "total": 100,
+    "accuracy": 0.09
+  },
+  "L7": {
+    "correct": 6,
+    "total": 100,
+    "accuracy": 0.06
+  },
+  "L8": {
+    "correct": 2,
+    "total": 100,
+    "accuracy": 0.02
+  },
+  "L9": {
+    "correct": 21,
+    "total": 100,
+    "accuracy": 0.21
+  },
+  "L10": {
+    "correct": 9,
+    "total": 100,
+    "accuracy": 0.09
+  },
+  "L11": {
+    "correct": 19,
+    "total": 100,
+    "accuracy": 0.19
+  },
+  "L12": {
+    "correct": 2,
+    "total": 100,
+    "accuracy": 0.02
+  },
+  "L13": {
+    "correct": 8,
+    "total": 100,
+    "accuracy": 0.08
+  },
+  "L14": {
+    "correct": 8,
+    "total": 100,
+    "accuracy": 0.08
+  },
+  "L15": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L16": {
+    "correct": 27,
+    "total": 100,
+    "accuracy": 0.27
+  },
+  "L17": {
+    "correct": 1,
+    "total": 100,
+    "accuracy": 0.01
+  },
+  "L18": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L19": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L20": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L21": {
+    "correct": 11,
+    "total": 100,
+    "accuracy": 0.11
+  },
+  "L22": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L23": {
+    "correct": 22,
+    "total": 100,
+    "accuracy": 0.22
+  },
+  "L24": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L25": {
+    "correct": 0,
+    "total": 100,
+    "accuracy": 0.0
+  },
+  "L26": {
+    "correct": 1,
+    "total": 100,
+    "accuracy": 0.01
+  },
+  "L27": {
+    "correct": 36,
+    "total": 100,
+    "accuracy": 0.36
+  }
+}
