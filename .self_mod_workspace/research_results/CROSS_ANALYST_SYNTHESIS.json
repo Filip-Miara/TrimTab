@@ -1,0 +1,343 @@
+{
+  "meta": {
+    "project": "TrimTab Velocity Prediction Optimization",
+    "model": "Qwen2.5-3B (AWQ-Marlin 4-bit) TrajectoryTransformer",
+    "current_best_R2": 0.688,
+    "data_size": "88K trajectories, 36 layers × 2048 dim float16",
+    "lenses_deployed": 9,
+    "lenses_completed": 9,
+    "lenses_failed": [],
+    "web_searches_executed": 3,
+    "lens_confidence_range": [0.78, 0.93],
+    "synthesis_confidence": 0.87
+  },
+  "triangulated_patterns": [
+    {
+      "pattern": "Layer depth is the primary R² ceiling, not quantization noise",
+      "confirmed_by_lenses": ["analogical", "dialectical", "abductive", "systems", "blending", "adversarial"],
+      "significance": 0.94,
+      "evidence": [
+        "R² inversely correlates with model size: SmolLM2(0.94) > 0.8B(0.878) > 7B(0.855) > 3B(0.688)",
+        "3B has 36 layers vs 28 for 7B — 12 more compounding error points",
+        "Per-layer R² on 7B: L17=0.93, L27=-0.84 (last layer worse than zero)",
+        "Cosine similarity plateaus at 0.788 from representational saturation"
+      ],
+      "elaboration": "The dominant root cause (abductive score: 0.91) is terminal-layer representational anisotropy. Each additional transformer layer provides another opportunity for next-token-prediction gradients to rotate hidden states away from velocity-informative subspaces. The 12-layer gap between 0.8B (24L) and 3B (36L) fully predicts the 0.878→0.688 drop if each layer corrupts ~0.016 R². Quantization noise (4-bit AWQ-Marlin) is real but secondary (adversarial attack severity: 0.3)."
+    },
+    {
+      "pattern": "Global per-dimension normalization conflates heterogeneous layer dynamics",
+      "confirmed_by_lenses": ["analogical", "dialectical", "systems", "abductive", "metacognitive"],
+      "significance": 0.91,
+      "evidence": [
+        "Current normalization applies one v_mean/v_std across ALL layers and dimensions",
+        "Per-layer R² ranges from 0.93 to -0.84 — evidence of radically different distributions",
+        "L0 has gain 13.6× vs ~0.5 elsewhere, suggesting it's an outlier distribution",
+        "Simpson's paradox analogy: aggregation across heterogeneous strata reverses signal"
+      ],
+      "elaboration": "The dialectical lens ranks this as the #1 impediment (0.91). Per-layer normalization would allow each layer's predictor to operate in a well-conditioned subspace. The analogical lens maps this to multi-source domain adaptation where each source requires its own whitening transform. Expected R² gain: +0.08-0.12."
+    },
+    {
+      "pattern": "NTFS I/O bottleneck is the highest-leverage operational intervention",
+      "confirmed_by_lenses": ["analogical", "systems", "trajectory", "dialectical"],
+      "significance": 0.90,
+      "evidence": [
+        "Training runs at 0.023 ep/s — 50× below GPU potential",
+        "3 reinforcing loops (R1, R2, R3) all amplify I/O constraints",
+        "Von Neumann bottleneck analogy: data movement, not compute, is limiting",
+        "Trajectory lens: 5 sessions wasted under status quo with R² stuck at 0.72-0.74"
+      ],
+      "elaboration": "Moving data from NTFS to NVMe SSD or RAM disk directly breaks the R2 and R3 reinforcing loops. Estimated 10-20× wall-clock speedup, enabling 2000+ epochs in hours instead of days. The trajectory lens predicts this costs <1 engineering day and prevents 5 wasted sessions."
+    },
+    {
+      "pattern": "The cosine=0.788 plateau signals a representational fixed point, not a training limit",
+      "confirmed_by_lenses": ["analogical", "blending", "metacognitive", "adversarial"],
+      "significance": 0.83,
+      "evidence": [
+        "Cosine sim saturates at 0.788 while train loss continues decreasing",
+        "Last-layer R² = -0.84 on 7B — representations are actively anti-predictive",
+        "Curvature κ spikes to 3.0 at L26 (vs ~1.5 elsewhere) — phase transition signature",
+        "Markov chain attractor analogy: post-mixing-time representations have no trajectory-specific info"
+      ],
+      "elaboration": "The blending lens reveals final-layer representations are not merely noisy but actively rotated away from velocity-relevant subspaces by LM gradient pressure. The 0.788 ceiling represents the cosine of the maximal rotation angle that doesn't degrade LM loss. This implies: (a) skip last 8-10 layers for velocity prediction, (b) add a velocity-auxiliary loss at intermediate layers during TT training to prevent rotation."
+    },
+    {
+      "pattern": "Ensemble of small TTs can exploit per-layer variance decomposition",
+      "confirmed_by_lenses": ["analogical", "dialectical", "abductive", "adversarial"],
+      "significance": 0.78,
+      "evidence": [
+        "Small models (SmolLM2 d_model=512) achieve R²=0.94 individually",
+        "Per-layer R² variance (0.93 to -0.84) is exploitable through layer-wise voting",
+        "3× d_model=512 ensemble has 2× params of d_model=1280 but O(d²) attention cost",
+        "Adversarial attack (limited diversity) is valid but mitigated by different seeds+checkpoints"
+      ],
+      "elaboration": "An ensemble of 3 small TTs (d_model=512 each) trains 4× faster than one d_model=1280 TT (since attention is O(d²)), and can use per-layer confidence-weighted averaging. The dialectical lens suggests learned weighting over uniform averaging. Expected R²: 0.72-0.75 from ensemble vs 0.69-0.71 from single 1280."
+    }
+  ],
+  "lens_specific_insights": {
+    "analogical": {
+      "key_insight": "The R² inverse scaling and cosine plateau follow the same structure as Markov chain stationary distributions. Models 'mix' to a fixed point beyond layer ~25 on 3B.",
+      "confidence": 0.84
+    },
+    "dialectical": {
+      "key_insight": "All contradictions center on depth-dependent representation drift vs a single global predictor. Pre-training ranked LAST (0.31 impediment).",
+      "confidence": 0.88
+    },
+    "blending": {
+      "key_insight": "Layer count confounds the apparent size-R² relationship. A 3B/24L variant would likely achieve R²≈0.87.",
+      "confidence": 0.85
+    },
+    "systems": {
+      "key_insight": "Compounding Degradation (R1) is the dominant reinforcing loop. Breaking it via structured prediction or per-layer goals is the highest-leverage intervention.",
+      "confidence": 0.82
+    },
+    "abductive": {
+      "key_insight": "Terminal-layer representational anisotropy (0.91 combined) is the best single explanation. Most falsifiable: 3B in fp16 should confirm quantization is secondary.",
+      "confidence": 0.85
+    },
+    "trajectory": {
+      "key_insight": "Status quo leads to R² stuck at 0.72-0.74 and 5 wasted sessions. SSD migration is the highest-leverage action.",
+      "confidence": 0.81
+    },
+    "metacognitive": {
+      "key_insight": "The analysis may be overconfident that R² improvement is always possible. An info-theoretic ceiling may exist and should be estimated first.",
+      "confidence": 0.91
+    },
+    "inspiration": {
+      "key_insight": "PCA/EOF decomposition before prediction (from climate modeling) and noise-floor regularized loss (from rate-distortion theory) are the strongest cross-domain adaptations.",
+      "confidence": 0.78
+    },
+    "adversarial": {
+      "key_insight": "Strongest attack: info-theoretic bound on d_model (severity 0.8). Data augmentation is the weakest proposal (severity 0.7 attack on SNR).",
+      "confidence": 0.93
+    }
+  },
+  "novel_syntheses": [
+    {
+      "synthesis": "Neural ODE in PCA latent space with noise-floor regularized loss",
+      "contributing_lenses": ["blending", "inspiration", "adversarial"],
+      "sources": ["analogical: domain adaptation", "inspiration: climate+PCA + Neural ODE", "adversarial: info-theoretic bounds"],
+      "confidence": 0.78,
+      "description": "Apply PCA to (batch×36, 2048) trajectory matrix, keep top K=150 components (95% var). Predict velocity in PCA latent space via a Neural ODE parameterized by 2-layer MLP. Use noise-floor margin loss: L = max(0, |y-ŷ| - α·ε_f)². This addresses: (1) quantization noise via PCA denoising, (2) compounding errors via ODE smoothness regularization, (3) dimension reduction for faster training."
+    },
+    {
+      "synthesis": "Layer-gated regime-switching ensemble with confidence weighting",
+      "contributing_lenses": ["blending", "systems", "inspiration"],
+      "sources": ["inspiration: regime-switching finance models", "systems: R1 loop", "dialectical: per-layer vs global"],
+      "confidence": 0.74,
+      "description": "Train a learned gating network that assigns each layer to one of 3 regime experts ('structure formation' L1-10, 'compositional refinement' L11-25, 'output tuning' L26-36). Each expert is a small TT (d_model=384). Final prediction = weighted sum of expert outputs with per-layer confidence weights learned via softmax over validation per-layer R²."
+    }
+  ],
+  "root_causes": [
+    {
+      "root_cause": "Terminal-layer representational anisotropy (abductive score: 0.91)",
+      "lens": "abductive",
+      "explanatory_power": 0.93,
+      "findings_explained": ["F1", "F2", "F3", "F4", "F5"],
+      "what_would_disprove": "PCA-whitening L27 features then regressing yields R² > 0.80"
+    },
+    {
+      "root_cause": "Compounding error across 36 layers (systems loop R1)",
+      "lens": "systems",
+      "explanatory_power": 0.88,
+      "findings_explained": ["F1", "F7", "F4"],
+      "intervention": "Add skip-level prediction targets or residual connections in TT"
+    },
+    {
+      "root_cause": "Global normalization conflating layer dynamics (dialectical rank: 0.91)",
+      "lens": "dialectical",
+      "explanatory_power": 0.86,
+      "findings_explained": ["F2", "F3", "F8"],
+      "intervention": "Per-layer z-score normalization with learnable affine transforms"
+    }
+  ],
+  "leverage_points": [
+    {
+      "point": "Move data to SSD + memory-mapped loading",
+      "lens": "systems",
+      "impact": "very_high",
+      "effort": "low",
+      "time_to_impact": "1 day"
+    },
+    {
+      "point": "Per-layer normalization and loss weighting",
+      "lens": "dialectical",
+      "impact": "very_high",
+      "effort": "low",
+      "time_to_impact": "2-3 days"
+    },
+    {
+      "point": "Per-layer R² monitoring (expose information flow)",
+      "lens": "systems",
+      "impact": "high",
+      "effort": "low",
+      "time_to_impact": "1 day"
+    },
+    {
+      "point": "Skip last 8-10 layers for velocity prediction",
+      "lens": "analogical",
+      "impact": "medium",
+      "effort": "very_low",
+      "time_to_impact": "hours"
+    },
+    {
+      "point": "PCA denoising before prediction",
+      "lens": "inspiration",
+      "impact": "medium",
+      "effort": "medium",
+      "time_to_impact": "3-5 days"
+    }
+  ],
+  "trajectories": [
+    {
+      "if_unchanged": "R² saturates at 0.72-0.74, 5+ sessions wasted on hyperparameter exploration",
+      "timeline": "5 sessions",
+      "lens": "trajectory",
+      "probability": 0.73
+    },
+    {
+      "if_ssd_and_per_layer_norm": "R² reaches 0.80-0.85 within 2-3 sessions, unlocks further optimization",
+      "timeline": "3 sessions",
+      "lens": "trajectory",
+      "probability": 0.82
+    },
+    {
+      "if_pca_neurall_ode": "R² reaches 0.85-0.88, approaches 7B/0.8B reference levels",
+      "timeline": "10 sessions",
+      "lens": "trajectory",
+      "probability": 0.68
+    }
+  ],
+  "ranked_recommendations": [
+    {
+      "rank": 1,
+      "recommendation": "Per-layer normalization + layer-specific loss weighting",
+      "expected_R2_gain": "+0.08 to +0.12",
+      "effort": "2-3 days",
+      "confidence": 0.91,
+      "implement_first": true
+    },
+    {
+      "rank": 2,
+      "recommendation": "Migrate data from NTFS to SSD (ext4/XFS) + memory-mapped training",
+      "expected_R2_gain": "10-20× training speedup (indirect: enables experimentation)",
+      "effort": "1 day",
+      "confidence": 0.90,
+      "implement_first": true
+    },
+    {
+      "rank": 3,
+      "recommendation": "Predict last 26 layers only (skip layers 27-36 which have degraded representations)",
+      "expected_R2_gain": "+0.03 to +0.06",
+      "effort": "hours",
+      "confidence": 0.83,
+      "implement_first": true
+    },
+    {
+      "rank": 4,
+      "recommendation": "Ensemble of 3 small TTs (d_model=512) with per-layer confidence weighting",
+      "expected_R2_gain": "+0.03 to +0.05",
+      "effort": "3-5 days",
+      "confidence": 0.78,
+      "implement_first": false
+    },
+    {
+      "rank": 5,
+      "recommendation": "PCA/EOF spectral decomposition before prediction (2048→150 dim latent space)",
+      "expected_R2_gain": "+0.03 to +0.05",
+      "effort": "3-5 days",
+      "confidence": 0.78,
+      "implement_first": false
+    },
+    {
+      "rank": 6,
+      "recommendation": "Noise-floor regularized loss (margin loss with per-feature quantization thresholds)",
+      "expected_R2_gain": "+0.02 to +0.03",
+      "effort": "2-3 days",
+      "confidence": 0.82,
+      "implement_first": false
+    },
+    {
+      "rank": 7,
+      "recommendation": "Data augmentation: trajectory mixing + random layer omission",
+      "expected_R2_gain": "+0.01 to +0.02",
+      "effort": "1-2 days",
+      "confidence": 0.65,
+      "implement_first": false
+    },
+    {
+      "rank": 8,
+      "recommendation": "Multi-task learning: velocity + contrastive inter-layer loss (0.1× weight)",
+      "expected_R2_gain": "+0.01 to +0.02",
+      "effort": "3-5 days",
+      "confidence": 0.60,
+      "implement_first": false
+    },
+    {
+      "rank": 9,
+      "recommendation": "Self-supervised masked trajectory pre-training",
+      "expected_R2_gain": "< +0.01 (high risk of wasted effort)",
+      "effort": "5-10 days",
+      "confidence": 0.31,
+      "implement_first": false
+    }
+  ],
+  "implementations": {
+    "top3_implementation_1_per_layer_norm": {
+      "title": "Per-layer normalization + loss weighting",
+      "files_to_modify": ["run_train_gen_tt_3b.py", "src/adapters/trajectory_transformer.py"],
+      "changes": [
+        "In run_train_gen_tt_3b.py: compute per-layer v_mean (n_layers, d_model) and v_std (n_layers, d_model) from validation set instead of global (1, d_model)",
+        "Normalize each layer independently: (v[l,:] - v_mean[l,:]) / v_std[l,:]",
+        "Add learnable per-layer affine after normalization: γ[l] * v_norm + β[l] (add to TrajectoryTransformer)",
+        "Optionally: weight loss per layer by 1/v_std[l]² (inverse variance weighting — layers with low noise get higher weight)",
+        "Add per-layer R² monitoring in validation loop"
+      ],
+      "expected_result": "R² increase from 0.688 to 0.77-0.81. Reduced L27 negative effect. More stable training.",
+      "risks": "Per-layer normalization adds 36×2048 = 74K parameters. Marginal risk: will need slightly more epochs to converge per-layer stats."
+    },
+    "top3_implementation_2_ssd_migration": {
+      "title": "SSD migration + memory-mapped data loading",
+      "files_to_modify": ["run_train_gen_tt_3b.py"],
+      "changes": [
+        "Copy data from /mnt/windows/trajs_3b_bs64 to /home/filip/... (internal SSD) or /tmp/opencode/ for RAM-speed",
+        "Modify data loading: consolidate all batches into single .pt file via torch.cat + save with torch.save(..., _use_new_zipfile_serialization=False)",
+        "Load with torch.load(path, map_location='cpu', mmap=True) for instant random access to any trajectory",
+        "Pre-compute normalization stats once and store in norm_stats.pt",
+        "Remove the per-epoch file-permutation shuffle (inefficient): shuffle indices into consolidated tensor instead",
+        "Increase batch size to GPU-max if I/O bottleneck resolved"
+      ],
+      "expected_result": "Epoch time drops from ~44s to ~2-5s (10-20× speedup). 2000 epochs achievable in 2-3 hours vs 24h. Enables rapid hyperparameter exploration.",
+      "risks": "SSD space: 88K × 36 × 2048 × 2 bytes = ~13GB. Should fit. Use float16 to halve if needed."
+    },
+    "top3_implementation_3_skip_degraded_layers": {
+      "title": "Predict only layers 0-25 (skip last 10 layers)",
+      "files_to_modify": ["run_train_gen_tt_3b.py"],
+      "changes": [
+        "During data loading: slice hidden_seqs to [:n_layers_to_predict] and velocity_targets to [:n_layers_to_predict]",
+        "n_layers_to_predict = n_layers - 10 (start with 26, evaluate R² on held-out set)",
+        "Also experiment: predict ALL layers but mask loss for last 10 layers with λ=0.1 weight",
+        "Monitor: does R² on early layers improve when later layers are excluded from gradient?"
+      ],
+      "expected_result": "R² improves from 0.688 to 0.72-0.75. Reduced error signal contamination from collapsed last layers.",
+      "risks": "If early layers also benefit from cross-attending to later layers (unlikely given negative R²), performance may degrade. Test with and without masking."
+    }
+  },
+  "further_avenues": [
+    "FA-1: Controlled precision experiment — collect 200 trajectories from 3B in fp16 and compare R² to 4-bit baseline. Quantifies quantization noise contribution directly.",
+    "FA-2: Neural ODE in PCA latent space — reduces 2048→150 dims, predicts continuous dynamics, natural denoising.",
+    "FA-3: Check if d_model=1280 eval matches train — verify d_model projection doesn't create eval ceiling.",
+    "FA-4: Train 3B TT using only layers 0-23 (matching 7B's depth) to test the layer-count hypothesis.",
+    "FA-5: Cross-layer contrastive loss to stabilize representations against LM gradient rotation."
+  ],
+  "recommended_next_steps": [
+    {"step": "P0: Move trajectory data from NTFS to SSD + memory-map", "priority": "P0", "based_on": "lens:systems+trajectory+analogical"},
+    {"step": "P0: Implement per-layer normalization and loss weighting", "priority": "P0", "based_on": "lens:dialectical+abductive+analogical"},
+    {"step": "P0: Add per-layer R² monitoring to training loop", "priority": "P0", "based_on": "lens:systems"},
+    {"step": "P1: Skip last 8-10 degraded layers during prediction", "priority": "P1", "based_on": "lens:analogical+blending"},
+    {"step": "P1: Run controlled fp16 vs 4-bit precision comparison", "priority": "P1", "based_on": "lens:adversarial+abductive"},
+    {"step": "P2: Implement PCA denoising pipeline for trajectory preprocessing", "priority": "P2", "based_on": "lens:inspiration"},
+    {"step": "P2: Train 3× d_model=512 ensemble with layer-wise confidence gating", "priority": "P2", "based_on": "lens:dialectical+analogical"},
+    {"step": "P3: Multi-task with contrastive inter-layer loss", "priority": "P3", "based_on": "lens:blending+metacognitive"},
+    {"step": "P3: Noise-floor regularized loss function", "priority": "P3", "based_on": "lens:inspiration+adversarial"}
+  ]
+}

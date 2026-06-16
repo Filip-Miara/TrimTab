@@ -1,0 +1,51 @@
+{
+  "model": "Qwen3.5-0.8B",
+  "alpha": 0.1,
+  "n_test": 30,
+  "baseline": 0.3,
+  "full_attention_layers": [
+    3,
+    7,
+    11,
+    15,
+    19,
+    23
+  ],
+  "results": {
+    "baseline": {
+      "correct": 9,
+      "total": 30,
+      "accuracy": 0.3
+    },
+    "L3": {
+      "correct": 8,
+      "total": 30,
+      "accuracy": 0.26666666666666666
+    },
+    "L7": {
+      "correct": 6,
+      "total": 30,
+      "accuracy": 0.2
+    },
+    "L11": {
+      "correct": 8,
+      "total": 30,
+      "accuracy": 0.26666666666666666
+    },
+    "L15": {
+      "correct": 1,
+      "total": 30,
+      "accuracy": 0.03333333333333333
+    },
+    "L19": {
+      "correct": 4,
+      "total": 30,
+      "accuracy": 0.13333333333333333
+    },
+    "L23": {
+      "correct": 9,
+      "total": 30,
+      "accuracy": 0.3
+    }
+  }
+}

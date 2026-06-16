@@ -1,0 +1,16 @@
+{
+  "model_r2": {
+    "standard": 0.6861673547088145,
+    "correct": 0.6495028401173573,
+    "incorrect": 0.6069156303204163,
+    "all": 0.6947130822586745
+  },
+  "cosine_similarities": {
+    "standard_vs_correct": 0.9150309562683105,
+    "standard_vs_incorrect": 0.8935001492500305,
+    "standard_vs_all": 0.9475812315940857,
+    "correct_vs_incorrect": 0.8889575004577637,
+    "correct_vs_all": 0.9313337802886963,
+    "incorrect_vs_all": 0.9047500491142273
+  }
+}

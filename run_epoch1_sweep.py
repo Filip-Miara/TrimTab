@@ -46,8 +46,8 @@ def extract_number(text):
 
 
 def steer_layer(model, hs, v, pkv, li, n_kv_heads=N_KV_HEADS, head_dim=HEAD_DIM):
-    """Apply steering vector v at layer li."""
-    h = hs[li + 1][0, -1, :] + v.to(hs[li + 1].dtype)
+    """Apply steering vector v (shape: (1, N_LAYERS, D)) at layer li only."""
+    h = hs[li + 1][0, -1, :] + v[0, li, :].to(hs[li + 1].dtype)
     l = model.model.layers[li]
     k = l.self_attn.k_proj(h.to(torch.bfloat16)).view(1, n_kv_heads, 1, head_dim)
     vo = l.self_attn.v_proj(h.to(torch.bfloat16)).view(1, n_kv_heads, 1, head_dim)
@@ -134,11 +134,11 @@ def main():
     args = parser.parse_args()
 
     layers = args.layers if args.layers else list(range(N_LAYERS))
-    conditions = ["baseline", "random", "standard", "contrastive"]
-    n_tests = len(conditions) * len(layers)
+    conditions = ["baseline"]  # run once
+    steer_conditions = ["random", "standard", "contrastive"]
+    n_tests = 1 + len(steer_conditions) * len(layers)  # 1 baseline + 3×28 = 85
     bonf_alpha = 0.05 / max(n_tests, 1)
-    z_threshold = float(np.sqrt(2) * np.vectorize(lambda x: np.roots([1, 0, -x**2/2])[1])(1 - bonf_alpha/2) if False else 3.33)  # Bonferroni approximation for 112 tests
-    z_threshold = 3.33  # Bonferroni α=0.05/112 ≈ 3.33σ
+    z_threshold = 3.33  # Bonferroni α=0.05/85 ≈ 3.33σ
 
     print(f"Loading Qwen2.5-7B-Instruct (4-bit)...", flush=True)
     quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
@@ -172,9 +172,20 @@ def main():
     problems = [r for r in ds if len(r["question"]) > 50][:args.n_test]
     overall_t0 = time.time()
 
-    all_results = {}  # key: "{cond}_L{layer}", value: list of 0/1
+    all_results = {}  # key: "{cond}_L{layer}" or "baseline", value: list of 0/1
 
-    for cond in conditions:
+    # Baseline — run once (layer-independent)
+    print(f"\n{'='*60}", flush=True)
+    print(f"  baseline (no steering)", flush=True)
+    print(f"{'='*60}", flush=True)
+    r = evaluate_condition(problems, tok, model, 0, "baseline", tts, args.alpha)
+    all_results["baseline"] = r
+    acc = np.mean(r)
+    ci_lo, ci_hi = bootstrap_ci(r)
+    print(f"  baseline: {sum(r)}/{len(r)} ({100*acc:.1f}%) CI=[{100*ci_lo:.1f},{100*ci_hi:.1f}]", flush=True)
+
+    # Steering conditions — run per layer
+    for cond in steer_conditions:
         for li in layers:
             key = f"{cond}_L{li}"
             print(f"\n{'='*60}", flush=True)
@@ -182,7 +193,7 @@ def main():
             print(f"{'='*60}", flush=True)
             r = evaluate_condition(problems, tok, model, li, cond, tts, args.alpha)
             all_results[key] = r
-            acc = sum(r) / len(r)
+            acc = np.mean(r)
             ci_lo, ci_hi = bootstrap_ci(r)
             print(f"  {key}: {sum(r)}/{len(r)} ({100*acc:.1f}%) CI=[{100*ci_lo:.1f},{100*ci_hi:.1f}]", flush=True)
 
@@ -193,21 +204,24 @@ def main():
     print(f"  Problems/condition: {args.n_test}", flush=True)
     print(f"{'='*60}", flush=True)
 
-    baseline_key = "baseline_L0"
-    baseline_accs = next((all_results[k] for k in all_results if k.startswith("baseline")), None)
+    baseline_accs = all_results.get("baseline", [])
     baseline_mean = np.mean(baseline_accs) if baseline_accs else 0
     baseline_se = np.std(baseline_accs) / np.sqrt(len(baseline_accs)) if baseline_accs else 0
-
-    print(f"  {'Condition':20s} {'Layer':>5} {'Acc':>7} {'Δ':>7} {'z':>6} {'p_sig':>6} {'CI_lo':>6} {'CI_hi':>6}", flush=True)
-    print(f"  {'-'*20} {'-'*5} {'-'*7} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*6}", flush=True)
+    print(f"  Baseline: {100*baseline_mean:.1f}%", flush=True)
 
     summary = {"metadata": {
         "n_test": args.n_test, "alpha_steer": args.alpha,
         "bonferroni_alpha": bonf_alpha, "z_threshold": z_threshold,
-        "n_tests": n_tests, "layers": layers, "conditions": conditions,
-    }, "results": {}, "significant": []}
+        "n_tests": n_tests, "layers": layers,
+        "conditions": ["baseline"] + steer_conditions,
+    }, "results": {"baseline": {
+        "accuracy": float(baseline_mean), "n": len(baseline_accs),
+    }}, "significant": []}
 
-    for cond in conditions:
+    print(f"  {'Cond':20s} {'Layer':>5} {'Acc':>7} {'Δ':>7} {'z':>6} {'p_sig':>6} {'CI_lo':>6} {'CI_hi':>6}", flush=True)
+    print(f"  {'-'*20} {'-'*5} {'-'*7} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*6}", flush=True)
+
+    for cond in steer_conditions:
         for li in layers:
             key = f"{cond}_L{li}"
             if key not in all_results:

@@ -1,0 +1,31 @@
+{
+  "avenue_id": "CROSS-ANALYST",
+  "title": "Cross-Research-Analyst parallel synthesis — TrimTab 3B Velocity Prediction Optimization",
+  "date": "2026-06-16",
+  "findings": [
+    "R²=0.688 ceiling is primarily from layer depth (36 layers) compounding prediction errors, not quantization noise",
+    "Global per-dimension normalization destroys layer-specific signal structure — per-layer normalization expected +0.08-0.12 R²",
+    "NTFS I/O bottleneck (0.023 ep/s) is the highest-leverage operational intervention with 10-20× speedup potential",
+    "Last 8-10 layers have negative R² contribution — skipping them improves overall prediction",
+    "Ensemble of 3 small TTs (d_model=512) likely beats single large TT (d_model=1280) due to attention O(d²) scaling + per-layer variance exploitation"
+  ],
+  "conclusions": [
+    "Implement per-layer normalization first (P0) — highest expected R² gain at lowest effort",
+    "Migrate data from NTFS to SSD immediately (P0) — gates all other optimization speed",
+    "Add per-layer R² monitoring to expose representational degradation (P0) — prevents wasted sessions"
+  ],
+  "further_avenues": [
+    "FA-1: Controlled fp16 vs 4-bit precision comparison (quantifies noise ceiling)",
+    "FA-2: PCA/EOF decomposition + Neural ODE in latent space",
+    "FA-3: 3B TT on first 24 layers only (tests layer-count hypothesis)"
+  ],
+  "next_steps": [
+    "P0: Implement per-layer normalization in run_train_gen_tt_3b.py",
+    "P0: Copy data from NTFS to SSD + memory-map for 10-20× training speedup",
+    "P0: Add per-layer R² monitoring to detect terminal-layer collapse",
+    "P1: Skip last 10 degraded layers (experiment with layers 0-25)",
+    "P2: Train 3× d_model=512 ensemble with layer-wise confidence weighting"
+  ],
+  "confidence": 0.87,
+  "tags": ["cross-research-analyst", "parallel-synthesis", "meta-analysis", "trimtab", "velocity-prediction", "3B-optimization"]
+}

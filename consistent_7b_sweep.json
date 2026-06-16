@@ -1,0 +1,87 @@
+{
+  "baseline": 0.23333333333333334,
+  "results": {
+    "baseline": {
+      "correct": 7,
+      "total": 30,
+      "accuracy": 0.23333333333333334
+    },
+    "L2": {
+      "correct": 12,
+      "total": 30,
+      "accuracy": 0.4
+    },
+    "L3": {
+      "correct": 11,
+      "total": 30,
+      "accuracy": 0.36666666666666664
+    },
+    "L5": {
+      "correct": 11,
+      "total": 30,
+      "accuracy": 0.36666666666666664
+    },
+    "L8": {
+      "correct": 13,
+      "total": 30,
+      "accuracy": 0.43333333333333335
+    },
+    "L10": {
+      "correct": 12,
+      "total": 30,
+      "accuracy": 0.4
+    },
+    "L20": {
+      "correct": 10,
+      "total": 30,
+      "accuracy": 0.3333333333333333
+    },
+    "L11": {
+      "correct": 9,
+      "total": 30,
+      "accuracy": 0.3
+    },
+    "L12": {
+      "correct": 12,
+      "total": 30,
+      "accuracy": 0.4
+    },
+    "L13": {
+      "correct": 10,
+      "total": 30,
+      "accuracy": 0.3333333333333333
+    },
+    "L14": {
+      "correct": 11,
+      "total": 30,
+      "accuracy": 0.36666666666666664
+    },
+    "L15": {
+      "correct": 8,
+      "total": 30,
+      "accuracy": 0.26666666666666666
+    },
+    "L16": {
+      "correct": 7,
+      "total": 30,
+      "accuracy": 0.23333333333333334
+    },
+    "L17": {
+      "correct": 12,
+      "total": 30,
+      "accuracy": 0.4
+    },
+    "L18": {
+      "correct": 6,
+      "total": 30,
+      "accuracy": 0.2
+    },
+    "L19": {
+      "correct": 7,
+      "total": 30,
+      "accuracy": 0.23333333333333334
+    }
+  },
+  "alpha": 0.1,
+  "n_test": 30
+}
