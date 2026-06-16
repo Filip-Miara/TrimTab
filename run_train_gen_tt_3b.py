@@ -13,7 +13,7 @@ from src.adapters.trajectory_transformer import TrajectoryTransformer
 DEVICE = "cuda"
 RMMAP_DIR = "/mnt/windows/trajs_rmmap"
 D_INPUT = 2048; N_LAYERS = 36; BS = 128; LR = 3e-4; N_EPOCHS = 30
-CHUNK_SIZE = 5000  # ~1.5GB per chunk
+CHUNK_SIZE = 4000  # ~1.2GB per chunk → 2 in VRAM = 2.4GB (fits in 2.9GB free)
 
 def compute_metrics(v_pred, v_target):
     v_p, v_t = v_pred.float(), v_target.float()
@@ -77,49 +77,45 @@ def main():
         tt.train(); epoch_loss = 0; n_batches = 0
         chunk_order = np.random.permutation(n_chunks)
 
-        def _load(ch):
+        def _load_gpu(ch):
             s = ch * CHUNK_SIZE; e = min(s + CHUNK_SIZE, n_train)
-            return (torch.from_numpy(h_mmap[s:e].copy()).to(DEVICE, non_blocking=True),
-                    torch.from_numpy(v_mmap[s:e].copy()).to(DEVICE, non_blocking=True))
+            h = torch.from_numpy(h_mmap[s:e].copy()).to(DEVICE)
+            v = torch.from_numpy(v_mmap[s:e].copy()).to(DEVICE)
+            cp = torch.randperm(len(h), device=DEVICE)
+            return h[cp], v[cp]
 
-        # Load first chunk to GPU directly
-        cur_h, cur_v = _load(chunk_order[0])
-        # Shuffle on GPU
-        cp = torch.randperm(len(cur_h), device=DEVICE)
-        cur_h, cur_v = cur_h[cp], cur_v[cp]
+        # Double-buffer: fill both buffers upfront
+        buf = [_load_gpu(chunk_order[0]), _load_gpu(chunk_order[1])]
 
         for ch_pos in range(n_chunks):
-            # Start background loading of next chunk
-            loader = None
-            if ch_pos + 1 < n_chunks:
-                next_ch = chunk_order[ch_pos + 1]
-                _res = [None, None]
-                def _worker(c=next_ch, r=_res):
-                    r[0], r[1] = _load(c)
+            ch = chunk_order[ch_pos]
+            cur_h, cur_v = buf[ch_pos % 2]
+
+            # Start loading next chunk into the other buffer
+            loader = None; bi = ch_pos % 2; _r = None
+            if ch_pos + 2 < n_chunks:
+                next_ch = chunk_order[ch_pos + 2]
+                _r = [None, None]
+                def _worker(c=next_ch, r=_r):
+                    r[0], r[1] = _load_gpu(c)
                 loader = threading.Thread(target=_worker, daemon=True)
                 loader.start()
 
-            # Train on current chunk (already on GPU)
+            # Train on current buffer
             n_cur = len(cur_h)
             for bi in range(0, n_cur, args.bs):
                 be = min(bi + args.bs, n_cur)
-                hb = cur_h[bi:be]
-                vb = cur_v[bi:be]
-                vn = ((vb - v_mean_gpu) / v_std_gpu).to(dtype=torch.float16)
-                vn = ((vb - v_mean_gpu) / v_std_gpu).to(dtype=torch.float16)
+                vn = ((cur_v[bi:be] - v_mean_gpu) / v_std_gpu).to(dtype=torch.float16)
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                    loss = (layer_w * (tt(hb) - vn).pow(2).mean(dim=-1)).sum(dim=-1).mean()
+                    loss = (layer_w * (tt(cur_h[bi:be]) - vn).pow(2).mean(dim=-1)).sum(dim=-1).mean()
                 opt.zero_grad(); scaler.scale(loss).backward()
                 scaler.unscale_(opt); torch.nn.utils.clip_grad_norm_(tt.parameters(), 1.0)
                 scaler.step(opt); scaler.update()
                 epoch_loss += loss.item(); n_batches += 1
 
-            del cur_h, cur_v
-
-            # Get next chunk (wait for thread if needed)
-            if loader is not None:
+            if loader is not None and _r is not None:
                 loader.join()
-                cur_h, cur_v = _res[0], _res[1]
+                buf[bi] = (_r[0], _r[1])  # overwrite freed buffer
 
             print(f"  ep={epoch+1:2d} ch={ch_pos+1}/{n_chunks} loss={epoch_loss/max(n_batches,1):.6f} {time.time()-t0:.0f}s", flush=True)
             gc.collect()
