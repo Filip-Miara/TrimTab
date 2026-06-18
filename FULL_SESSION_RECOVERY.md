@@ -1,413 +1,232 @@
-# FULL SESSION RECOVERY — RankAdaptation
+# FULL SESSION RECOVERY — TrimTab / RankAdaptation
 
-## 1. Project State
-
-**Goal**: End-to-end system for online continual learning with adaptive LoRA adapters. Spans three phases:
-- **Phase 1 (original)**: Compare 47 LoRA variants on ppl (Qwen3.5-0.8B, r=8, α=8, 50 steps)
-- **Phase 2 (expansion)**: SmolLM2-135M sweeps — combinatoric variants, cycling architectures, DiagLoRA/MultiAngleLoRA
-- **Phase 3 (StreamFusion)**: Online continual learning with PerceiverFusion bottleneck, TAF routing, weight flow matching, diffusion denoising, MetaController lifecycles, dynamic K
-
-### Key Files
-
-| File | Purpose | Phase |
-|------|---------|-------|
-| `run_exp.py` | Main batch experiment runner (HF model, arxiv, 100 steps) | 1+2 |
-| `run_stream_fusion.py` | Streaming continual learning (segments + experts) | 3 |
-| `run_lifecycle.py` | PERA→BVA morphing lifecycle schedule | 3 |
-| `run_meta_evolution.py` | ES optimization over adapter lifecycles | 3 |
-| `run_weight_flow_train.py` | Weight trajectory collection + flow training on real LM data | 3 |
-| `run_weight_flow_eval.py` | Evaluation: flow-generated vs SGD vs zero weights | 3 |
-| `run_diffusion_flow_train.py` | Diffusion + flow matching over weights (diverse data) | 3 |
-| `run_diffusion_flow_eval.py` | WeightDiffusion vs SGD vs zero evaluation | 3 |
-| `run_sweep_analysis.py` | Multi-seed multi-segment analysis | 3 |
-| `run_comparison.py` | Flow vs SVD vs SGD velocity cosine similarity | 3 |
-| `gen_combo.py` | Generator for bidirectional combinatorics | 2 |
-| `gen_dora.py` | Generator for DoRA-style combinatorics | 2 |
-| `src/adapters/stream_fusion.py` | **StreamFusionLoRA**, PerceiverFusion, HybridStreamExpert, all expert variants | 3 |
-| `src/adapters/diffusion_weight_flow.py` | WeightDiffusion (flow + denoising + optimal target), DiffusionFlowTrainer | 3 |
-| `src/adapters/flow_weight_expert.py` | FlowWeightExpert, compute_closed_form_lora (SVD optimal) | 3 |
-| `src/adapters/adapter_evolution.py` | MetaController, AdapterEvolution (ES), LifecycleConfig | 3 |
-| `src/adapters/dynamic_k.py` | Dynamic K: entropy-thresholded + adaptive growth | 3 |
-| `src/adapters/gradient_decomposition.py` | TaylorContribution, AlternatingTrainer, OverlapConsistency | 3 |
-| `src/adapters/lifecycle_flow.py` | LifecycleFlow velocity field, FlowMatchingTrainer | 3 |
-| `src/adapters/differentiable_lifecycle.py` | Unified differentiable morph optimizer | 3 |
-| `src/adapters/weight_flow.py` | WeightFlowField, WeightFlowTrainer | 3 |
-| `src/adapters/base.py` | LowRankAdapter, AdapterWrappedLinear, adapt_linear_layer | 1 |
-| `src/adapters/__init__.py` | Exports all adapter classes (118 batch + 10 StreamFusion) | 1+2+3 |
-
-### Adapter Architecture Map (Phase 1+2)
-
-```
-Base LowRankAdapter
-├── No magnitude: PlainLoRA
-├── Column magnitude: DoRA
-│   ├── +VE: DVoRA
-│   └── +LayerNorm: DoRAN
-│       ├── + group mag: EDoRA → EDoRAN
-│       ├── + AFA flag: GenDDoRAN variants (32)
-│       └── + bidirectional: BVoRAN → GenBVoRAN variants (64)
-│           ├── + SR flag: SRBVoRAN
-│           ├── + Knit flag: KnitBVoRAN (OOM)
-│           └── + cycling: CycledBoRAN
-├── Cycling (axis-cycling): CycledAxialBoRA
-├── Cycling (diag-cycling): CycledDiagLoRA
-├── Diagonal magnitude: DiagLoRAN
-└── Configurable angles: MultiAngleLoRAN
-```
-
-### StreamFusion Architecture Map (Phase 3)
-
-```
-StreamFusionLoRA
-├── PerceiverFusion bottleneck
-│   ├── Cross-attend: latents ↔ expert embeddings
-│   ├── Self-attend: latents ↔ latents
-│   └── Output cross-attend: query → fused delta
-├── Expert variants (HybridStreamExpert)
-│   ├── Plain (B·A), DoRA (magnitude-norm), BoRA (bidirectional), VeRa (vectors)
-│   ├── AFA (annealed tanh), AUR (autoencoder MLP), PERA (polynomial)
-│   └── Soft flags: continuous [0,1] blending for smooth morphing
-├── Flow matching over weights
-│   ├── WeightFlowField (Perceiver bottleneck over weight space)
-│   ├── WeightDiffusion (separate noise + velocity heads)
-│   ├── Closed-form SVD optimal target
-│   └── Stagnation penalty
-├── MetaController (transformer over adapter history)
-│   ├── Suggests flags + poly_order + morph_rate per segment
-│   └── Evolution-strategy optimization
-├── Dynamic K regulation
-│   ├── Entropy-thresholded (drop high-entropy latents)
-│   └── Adaptive growth (expand when reasoning stalls)
-└── Gradient decomposition
-    ├── TaylorContribution (per-rank-1 loss contribution)
-    ├── AlternatingTrainer (gradient isolation via masking)
-    └── OverlapConsistency (MSE over overlapping components)
-```
+**Session**: 2026-06-17 → 2026-06-18 (~6h)
+**Repo**: github.com/Filip-Miara/TrimTab
+**Hardware**: MSI Cyborg 15 (RTX 4060 Laptop 8GB, i7-12650H, 16GB RAM)
+**OS**: Windows 11 (WDDM)
+**Python**: 3.12.12 (Conda), PyTorch 2.11.0+cu128, CUDA 12.8, Triton 3.3.1
 
 ---
 
-## 2. Phase 1+2 Experiments (Batch LoRA Variants)
+## Pre-Session State
 
-### 2.1 Complete Combined Ranking (34 unique variants, SmolLM2-135M)
-
-| # | Variant | Eval Loss | PPL | Norm? | Notes |
-|---|---------|-----------|-----|-------|-------|
-| 1 | `plain_lora` | 3.06 | **21** | ❌ | Best — but on random base weights |
-| 2 | `edoran` (gs=128) | 7.24 | **1,394** | ✅ | Best magnitude variant |
-| 3 | `edoran` (gs=64) | 7.24 | 1,401 | ✅ | |
-| 4 | `doran` | 7.31 | 1,492 | ✅ | |
-| 5 | `gend_afa_eva_doran` | 7.34 | 1,547 | ✅ | Best gen'd norm variant |
-| 6-18 | All `gend_*doran*` | 7.35-7.43 | 1,561-1,689 | ✅ | Flag combos (tight cluster) |
-| 19 | `cycled_diag_lora` | 7.58 | 1,952 | ❌ | Cycled diag/anti bands |
-| 20 | `cycled_axial_loran` | 7.86 | 2,581 | ❌ | Axis-cycling |
-| 21 | `gend_cycled_axial_boran` | 7.91 | 2,718 | ✅ | Gend axis-cycling + norm |
-| 22 | `cycled_bvoran` | 8.15 | 3,477 | ✅ | Branch-cycling |
-| 23 | `gend_cycled_boran` | 8.32 | 4,108 | ✅ | Gend branch-cycling + norm |
-| 24 | `diag_loran` | 10.01 | 22,292 | ✅ | Bidirectional diag |
-| 25 | `gend_cycled_axial_bora` | 11.90 | 147K | ❌ | No-norm axis-cycling |
-| 26-34 | All no-norm variants | 13.3-13.5 | 600K-730K | ❌ | No norm cluster |
-
-### 2.2 EDoRA Group Size Sweep (SmolLM)
-
-| Group Size | Eval Loss | PPL |
-|-----------|-----------|-----|
-| 64 | 7.24 | 1,401 |
-| **128** | **7.24** | **1,394** ← best |
-| 256 | 7.36 | 1,567 |
-| 512 | 7.36 | 1,568 (default) |
-| 1024 | 7.75 | 2,324 |
-
-### 2.3 Phase 1+2 Key Findings
-
-- **LayerNorm dominates**: 6-point loss gap between norm and no-norm (7.3 vs 13.4)
-- **Plain LoRA beats magnitude on random weights** (PPL 21 vs 1,394) — magnitude needs pretrained
-- **Cycling**: axis-cycling > branch-cycling, but cycling < static+norm
-- **EDoRA**: smaller groups (64-128) beat larger (512-1024)
-- **KnitLoRA**: OOM on all model scales — forsaken
+Project had established (from prior 5 sessions on Linux):
+- **Trim-tab layers exist**: L8 → +20pp, L2 → +17pp, L9 → -23pp on Qwen2.5-7B
+- **Velocities are learnable**: R²=0.85-0.94 for TrajectoryTransformer
+- **Steering amplifies, doesn't create**: requires baseline >~40% GSM8K
+- **Cross-model transfer**: SmolLM2→7B preserves L8 as best trim-tab layer
+- **Steering via KV-cache modification**: modify K/V projections at specific layer
 
 ---
 
-## 3. Phase 3 Experiments (StreamFusion / Weight Flow)
+## Session Goals
 
-### 3.1 Streaming Continual Learning (Qwen3.5-2B)
-
-| Segments | Train PPL | Eval PPL | Experts |
-|----------|-----------|----------|---------|
-| 1 | 5,920 | 3,203 | 1 |
-| 3 | 715 | 1,395 | 3 |
-| 5 | 442 | 1,193 | 5 |
-| 7 | 814 | 1,092 | 7 |
-| 9 | 347 | **698** | 9 |
-
-StreamFusion improves across segments — 78% eval PPL reduction from seg 1 to seg 9.
-
-### 3.2 Expert Variant Sweep (11 variants × 3 seeds × 5 segments)
-
-| Rank | Variant | Eval PPL (seg 5) | vs Plain |
-|------|---------|-----------------|----------|
-| 1 | **BVA** (bi+vec+norm) | 1,289 | -5.0% |
-| 2 | dora | 1,293 | -4.6% |
-| 3 | plain | 1,303 | baseline |
-| 4 | AFA (annealed tanh) | 1,300 | -0.2% |
-| 5 | PERA (polynomial) | 1,309 | +0.5% |
-
-### 3.3 Weight Flow Matching (Qwen3.5-0.8B)
-
-| Model | Training Data | Train Flow Loss | Eval vs Zero |
-|-------|--------------|-----------------|--------------|
-| WeightFlowField | 15 traj (arxiv) | ~0 | 2.8925 ≈ 2.8928 |
-| + gradient conditioning | 15 traj | ~0 | 2.8919 ≈ 2.8928 |
-| WeightDiffusion + opt target | 70 traj (5 sources) | flow~0, opt~2e-5 | 2.8928 = 2.8928 |
-| + stagnation penalty | 70 traj | flow~0, stag active | in progress |
-
-**Key finding**: Flow matching perfectly learns training dynamics (MSE ~0) but predicts zero on test data. Conditioning (mean hidden state + gradient) is information-theoretically insufficient to determine the correct weight update for unseen data.
-
-### 3.4 Cosine Similarity: Flow vs SVD vs SGD
-
-| Comparison | Cosine Similarity | Meaning |
-|-----------|------------------|---------|
-| SGD update vs SVD optimal | -0.003 | SGD does NOT follow SVD direction |
-| Flow velocity vs SVD optimal | 0.009 | Flow learned SGD, not SVD |
-| Flow velocity vs SGD update | 0.001→0.008 | Flow ≈ zero vector |
-
-### 3.5 Diffusion Denoising Analysis
-
-**Finding**: Denoising MSE stays at 1.0 (random guess) even with proper weight normalization and separate output heads. Root cause: clean adapter weights are random (initialized randomly, SGD shifts slightly). There is no low-dimensional manifold for denoising to learn.
-
-**Recommendation**: Drop diffusion denoising. Focus on flow matching + closed-form SVD optimal target.
-
-### 3.6 Full Pipeline Evaluation
-
-| Model Configuration | Flow Eval PPL | Zero Eval PPL | Flow < Zero? |
-|--------------------|--------------|---------------|--------------|
-| 12 traj, no gradient | 2.8925 | 2.8928 | 0/5 |
-| 12 traj + gradient conditioning | 2.8919 | 2.8928 | 4/5 (marginal) |
-| 70 traj + gradient + optimal target | 2.8928 | 2.8928 | 0/5 |
-
-All models match zero. The wall is conditioning insufficiency.
+1. Investigate acceleration strategies for 8GB VRAM Windows environment
+2. Apply AWQ+Marlin quantization for fitting 7B model in VRAM
+3. Train TrajectoryTransformer on AWQ 7B trajectory data
+4. Run per-layer steering sweep to replicate trim-tab findings
+5. Optimize throughput via batching, hooks, and KV-cache management
 
 ---
 
-## 4. Key Cross-Cutting Findings
+## Key Results
 
-### 4.1 What Works
-- **StreamFusion online training**: Eval PPL drops 78% across segments via expert accumulation
-- **Flow matching on weight trajectories**: Perfect training fit (MSE ~0)
-- **Closed-form SVD**: 29.8% loss reduction in a single step — the optimal update direction
-- **Entropy-thresholded dynamic K**: Correctly drops inattentive latents
-- **Adaptive growth**: Expands from K_min when reasoning stalls
-- **Stagnation penalty**: Increases velocity norm 1615× (forces non-zero predictions)
-- **HybridStreamExpert soft flags**: Continuous [0,1] blending for smooth architectural morphing
+### ✅ Baseline Accuracy (AWQ Qwen2.5-7B on GSM8K)
 
-### 4.2 What Doesn't Work
-- **Diffusion denoising on weights**: MSE stuck at 1.0 — weights are unstructured
-- **Weight generalization to test data**: All models predict zero on unseen data
-- **ES evolution**: Population variance too low (0.03 after 5 gens) — needs more data
-- **DDIM denoising**: Amplifies errors, produces worse results than zero initialization
-- **KnitLoRA**: OOM on all model scales — forsaken
+| Metric | Value |
+|--------|-------|
+| Baseline (no steering) | **18/30 = 60.0%** |
+| L8 steering (α=0.1) | **20/30 = 66.7% (+6.7pp)** |
+| Original project baseline (BnB 4-bit, Linux) | ~73% |
 
-### 4.3 The Core Bottleneck
-The fundamental issue across all weight flow models: **conditioning insufficiency**. The mean hidden state + gradient (5120-dim) doesn't contain enough information to determine the correct weight update for unseen data. The model correctly learns that "predict zero" minimizes held-out MSE.
+**Trim-tab L8 confirmed on AWQ model** — consistent improvement across all batches.
 
-**Solutions identified**:
-1. Richer conditioning (full hidden state sequence, not mean)
-2. Closed-form SVD as primary target (well-defined for any input)
-3. Shift to latent reasoning (thoughts have structure; weights don't)
+### ✅ TrajectoryTransformer Training
+
+| Detail | Value |
+|--------|-------|
+| Architecture | d_model=768, 6 layers, 8 heads, d_ff=3072 |
+| Training data | 80 files × ~1100 trajs = ~88K trajectories |
+| Val R² (normalized) | 0.699 |
+| Val R² (denormalized, correct) | **0.843** |
+| Val cos | 0.638 |
+| Training time | ~10 min (30 epochs, bs=32) |
+| Checkpoint | `best_tt_awq_7b.pt` (183 MB) |
+
+**Key finding**: R² computed on normalized targets is more stringent than on denormalized (original method). Our model achieves R²=0.843 denormalized, close to original's 0.855.
+
+### ✅ AWQ Model Loading
+
+| Detail | Value |
+|--------|-------|
+| Model | Qwen2.5-7B-Instruct (AWQ 4-bit) |
+| Load time | 15-30s (local NVMe SSD) |
+| VRAM usage | **5.24 GB dedicated** |
+| Kernel | `AwqGEMMTritonLinear` (Triton-based fallback) |
+| ExLlamaV2 | Failed (no MSVC compiler on Windows) |
+| Batch throughput (bs=16, 50 tok) | **136 tok/s** |
+| Batch throughput (bs=64, 50 tok) | **300 tok/s** |
+
+### ✅ Prompt Format Fix
+
+- Chat template (`apply_chat_template` with `{"role": "user", ...}`) required for instruct model
+- Answer extraction needs last-number-from-last-sentence strategy
+- `MAX_GEN=400` required for verbose reasoning chains (200 truncated answers)
+- `skip_special_tokens=True` needed when decoding
 
 ---
 
-## 5. Infrastructure Details
+## Key Optimizations Applied
 
-### Memory Optimization (Phase 1)
-- AdapterWrappedLinear frees base_linear.weight after cloning (saves ~400MB)
-- saved_weights stored on CPU
-- Gradient checkpointing enabled for all runs
+### Zero-Cost (5 min)
 
-### Key Commands
+| Optimization | Impact |
+|-------------|--------|
+| `torch.set_float32_matmul_precision('high')` | ~2× FP32 matmul speedup (TF32) |
+| `torch.backends.cuda.matmul.allow_tf32 = True` | Enables TF32 tensor cores |
+| `torch.backends.cudnn.benchmark = True` | Auto-tuning convolution algorithms |
+| `PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128` | Eliminates expandable_segments warnings |
+| `HF_HOME=D:\\Datasets` | Points to fast SSD with 81GB free |
 
+All encapsulated in `src/optimization.py`:
+```python
+from src.optimization import setup_optimizations
+setup_optimizations()
+```
+
+### Forward Hooks vs output_hidden_states
+
+`output_hidden_states=True` allocates ALL 28 full hidden states:
+- Memory: 28 × batch × seq_len × d_model × 2 bytes = **~800MB** per forward pass at bs=10, seq=400
+- Causes VRAM overflow into shared system memory
+
+**Fix**: Forward hooks on all 28 layers capturing only `h[:, -1, :]`:
+- Memory: 28 × batch × d_model × 2 bytes = **~200KB** per forward pass
+- Saves ~800MB, enabling bs=10 without shared memory spill
+
+Implemented in `run_steer_hooked.py` via `HiddenStateCollector` class.
+
+### Batch Size Scaling
+
+| Batch | t/s (baseline) | VRAM | Notes |
+|-------|-------|------|-------|
+| 1 | 8 | 5.25 GB | Slow but stable |
+| 5 | ~40 | 5.41 GB | **Recommended for steering** |
+| 10 | ~80 | 5.44 GB | Leaks into shared memory at long generations |
+| 30 | ~142 | ~6 GB | Baseline only (no steering modifications) |
+
+**Batched TT inference**: Running TT once per token on all batch items (not once per item per token) gave ~5× speedup over naive per-item steering.
+
+---
+
+## Infrastructure Discoveries
+
+### Windows-Specific Issues
+
+1. **gptqmodel overrides `PYTORCH_ALLOC_CONF`** after loading:
+   - Sets `expandable_segments:True` (NOT supported on WDDM → allocator fallback path)
+   - Sets `garbage_collection_threshold:0.7` (triggers GC at 5.6GB, barely above model's 5.24GB)
+   - Can't prevent this from user code — library sets it internally
+
+2. **CUDA UMD corruption after GPU crash**:
+   - WDDM TDR leaves orphaned resources in user-mode driver
+   - `nvidia-smi --gpu-reset` only resets KMD, not UMD
+   - Fix: `pnputil /disable-device /enable-device` on NVIDIA GPU (requires admin) OR full reboot
+   - Corrupted .pyc caches compound the problem after crashes
+   - Created `fix_conda_torch.ps1` as automated repair script (steps 0-7)
+
+3. **Page file fragmentation**:
+   - Loading 4.17 GB safetensors files requires contiguous virtual memory
+   - After repeated model loads + unloads, virtual memory fragments
+   - `low_cpu_mem_usage=True` helps but doesn't fully prevent
+   - Reboot is the only reliable fix
+
+### AWQ vs BnB 4-bit Tradeoffs
+
+| Aspect | AWQ (current) | Bitsandbytes 4-bit |
+|--------|--------------|-------------------|
+| VRAM | 5.24 GB | ~5.5 GB |
+| Batch inference | Fast (Triton kernels) | Slower |
+| Hidden states via hooks | ✅ Works | ✅ Works |
+| `output_hidden_states=True` | ⚠️ Ignored at generation | ✅ Works |
+| Page file issues | ❌ (4.17 GB safetensors) | ✅ (loads layer-by-layer) |
+
+---
+
+## Files Created/Modified This Session
+
+| File | Purpose |
+|------|---------|
+| `src/optimization.py` | Centralized optimization setup (TF32, cuDNN, allocator) |
+| `run_train_tt_awq.py` | TT training on AWQ trajectory data (sequential) |
+| `run_train_tt_stable.py` | Stable TT training with memory fixes |
+| `run_train_tt_async.py` | Async data loading for TT training |
+| `run_train_tt_vramcache.py` | Triple-buffered VRAM cache for TT training |
+| `run_awq_steering_sweep.py` | Per-layer sweep on AWQ 7B (sequential) |
+| `run_awq_sweep_batched.py` | Batched per-layer sweep |
+| `run_sweep_v2.py` | Corrected prompt format + batched baseline |
+| `run_sweep_fast.py` | Optimized sweep with MAX_GEN=400 |
+| `run_steer_only.py` | Steering-only evaluation (no baseline redo) |
+| `run_steer_hooked.py` | Hook-based steering (avoids output_hidden_states) |
+| `fix_conda_torch.ps1` | Windows automated repair script (Steps 0-7) |
+| `ACCELERATION_STRATEGY.md` | Full acceleration strategy document |
+| `EMERGENT_AVENUES.md` | 12 expansion avenues for future work |
+| `_benchmark_throughput.py` | Throughput benchmarks |
+| `_verify_env.py` | Environment verification |
+
+---
+
+## Lessons Learned
+
+1. **Windows WDDM is hostile to CUDA ML workloads** — expandable_segments, TDR, orphaned UMD state, page file fragmentation. The dual-boot Linux setup is strongly preferred.
+
+2. **`output_hidden_states=True` is a memory trap** — allocates all layer hidden states (~800MB). Use forward hooks instead (200KB).
+
+3. **AWQ vs BnB**: AWQ is faster for batch inference but harder to load (page file issues). BnB is more robust on Windows.
+
+4. **TT training R²**: Computed on normalized targets is more stringent. Denormalized R² = 0.843 matches original 0.855.
+
+5. **Steering WORKS on AWQ models** — L8 trim-tab confirmed with +6.7pp improvement.
+
+6. **Batched TT inference** (once per token for all batch items) is ~5× faster than per-item.
+
+7. **Memory leak in generation loops**: Without `torch.cuda.empty_cache()` at batch boundaries, VRAM grows by ~3-5% per batch until shared memory is hit.
+
+---
+
+## State for Linux Resume
+
+### What Works
+- [x] AWQ Qwen2.5-7B loads and generates
+- [x] Forward hooks capture hidden states
+- [x] Batched TT inference (once per token for all items)
+- [x] KV-cache steering at any layer
+- [x] Prompt format (chat template with max_new_tokens=400)
+- [x] Answer extraction (last number in last sentence)
+
+### Checkpoints on D: SSD
+- `D:\Qwen2.5-7B-AWQ\qwen7b_awq` — AWQ 4-bit model
+- `best_tt_awq_7b.pt` — TT checkpoint (R²=0.843 denorm)
+- `D:\project_data\qwen25_7b_gen_trajs` — 83 batch files (88K trajectories)
+- `D:\trajs_7B_AWQ\Batches` — 16 AWQ trajectory batch files
+
+### Available Scripts (TrimTab repo)
 ```bash
-# Run batch experiment
-python3 run_exp.py --variants dora edora --r 8 --alpha 8.0 --batch-size 1 --max-steps 200
+# Training
+python run_train_tt_stable.py --data-dir <path> --d-model 768 --epochs 30
 
-# Run streaming continual learning
-python3 run_stream_fusion.py --n-segments 10 --steps-per-segment 20 --r 8
+# Baseline only
+python run_sweep_fast.py --n-test 30 --batch-size 5 --layers 8 --alpha 0.1
 
-# Run expert variant sweep
-python3 run_sweep_analysis.py
+# Steering (hooked, memory-efficient)  
+python run_steer_hooked.py --layer 8 --n-test 30 --alpha 0.1 --batch-size 10
 
-# Run weight flow training
-python3 run_weight_flow_train.py
-
-# Run weight flow evaluation
-python3 run_weight_flow_eval.py
-
-# Run diffusion flow training (diverse data)
-python3 run_diffusion_flow_train.py
-
-# Run diffusion flow evaluation
-python3 run_diffusion_flow_eval.py
-
-# Run flow vs SVD vs SGD comparison
-python3 run_comparison.py
+# Sweep all key layers
+python run_sweep_fast.py --n-test 30 --batch-size 5 --layers 2 3 5 8 9 10 15 20 --alpha 0.1
 ```
 
-### Known Issues
-- Knit variants OOM on all model scales
-- MultiAngleLoRA outputs NaN (empty band issue)
-- Weight flow models don't generalize to test data (conditioning insufficiency)
-- Batch size vs throughput: SmolLM too small to saturate GPU
-
----
-
-## 6. Literature Landscape
-
-### Flow Matching / Diffusion for Weights
-| Paper | Year | Mechanism |
-|-------|------|-----------|
-| Doc-to-LoRA | 2026 | Hypernetwork generates LoRA weights from prompts |
-| HyperAdaLoRA | 2025 | Attention-based SVD parameter generation |
-| P-diff | 2024 | Diffusion for parameter generation |
-| **Your gap**: Flow matching over weight trajectories | — | Predict weight velocity via Perceiver bottleneck, conditioned on data |
-
-### Continual / Online LoRA
-| Paper | Year | Mechanism |
-|-------|------|-----------|
-| Online-LoRA | 2025 (WACV) | Task-free online continual learning |
-| Temp-Lora | 2024 (COLM) | Temporary LoRA trained during generation |
-| C-LoRA | 2025 | Routing matrix for sequential tasks |
-| **StreamFusion-LoRA** | 2026 | PerceiverFusion bottleneck + TAF routing + expert pool |
-
-### LoRA Variants
-| Paper | Year | Mechanism |
-|-------|------|-----------|
-| DoRA | 2024 (NeurIPS) | Magnitude-direction decomposition |
-| AdaLoRA | 2023 (ICLR) | SVD param., prune singular values |
-| VeRa | 2025 | Vector-based eigendirections |
-| SRLoRA | 2025 | Dynamic subspace recomposition |
-| **Your variants**: AFA, AUR, PERA | 2026 | Annealed tanh, autoencoder MLP, polynomial expansion |
-
----
-
-## 7. Tagged Milestones (Git)
-
-| Tag | Description |
-|-----|-------------|
-| v0.1.0-streamfusion | PerceiverFusion + TAF routing + expert pool |
-| v0.2.0-experts | DoRA, BoRA, VeRa + HybridStreamExpert (8 flags) |
-| v0.3.0-orthodox | AFA, AUR, PERA + 20-variant sweep |
-| v0.4.0-decomposition | TaylorContribution, AlternatingTrainer, OverlapConsistency |
-| v0.5.0-analysis | Multi-seed multi-segment analysis framework |
-| v0.6.0-evolution | MetaController (ES over adapter lifecycles) |
-| v0.7.0-lifecycle | PERA→BVA morphing schedule |
-| v0.8.0-flowmatching | Flow matching over flags (architecture space) |
-| v0.9.0-unified | Differentiable lifecycle optimizer |
-| v0.10.0-weightflow | Flow matching over weights (synthetic) |
-| v0.10.1-flowweights | FlowWeightExpert + closed-form LoRA analysis |
-| v0.11.0-realtraj | Real LM trajectory collection (Qwen3.5-0.8B) |
-| v0.12.0-eval | Full evaluation: flow ≈ zero on test data |
-| v0.12.1-realeval | Overfitting confirmed: 300 samples / 11M params |
-| v0.13.0-diffusion | WeightDiffusion (flow + denoising + flag conditioning) |
-| v0.14.0-diversetrain | 70 trajectories, 5 sources, 4275 augmented |
-| v0.15.0-closedform | Closed-form SVD training target |
-| v0.16.0-deliverables | Dynamic K design, meta-synthesis skill, MCP proposals |
-| v0.17.0-dynamick | Entropy-thresholded + adaptive growth implemented |
-| v0.18.0-denoising | Proper denoising analysis: flow works, denoising doesn't |
-
----
-
-## 8. Quick Resume
-
-### Next experiments to run
-
-```bash
-# 1. Stagnation-penalty training (in progress)
-#    Already running with λ_stag=0.2 on 70 trajectories
-
-# 2. Evaluate stagnation model
-python3 run_diffusion_flow_eval.py
-
-# 3. SelectiveLoRA implementation (from Phase 2 roadmap)
-#    Create with: warmup → score → freeze low → continue → periodic rescore
-
-# 4. Validate top-5 Phase 2 variants on Qwen3.5-0.8B
-python3 run_exp.py --variants edoran doran gend_afa_eva_doran --model-path ...qwen3.5-0.8b...
-
-# 5. Full latent reasoning engine prototype
-```
-
-### Key Numbers
-- Batch: Best magnitude variant: edoran gs=128, PPL 1,394 (Phase 2)
-- StreamFusion: 78% eval PPL reduction across 9 segments (Phase 3)
-- Weight flow: Flow MSE ~0 on training, ≈zero on test — conditioning wall
-- SVD closed-form: 29.8% loss reduction in one step
-- GPU: 7.6GB — enough for Qwen3.5-0.8B (batch=1) or Qwen3.5-2B (batch=1, gradient ckpt)
-- Diffusion training: ~60 min for 70 trajectories, 15 epochs
-- Model sizes: weight_flow_model.pt = 10.6MB, diffusion_weight_flow.pt = 12MB
-
-### Architecture Decisions
-1. **Magnitude needs pretrained weights** — Phase 1 finding confirmed
-2. **Flow matching works for training memorization, not generalization** — Phase 3 finding
-3. **Denoising is pointless on random weights** — they have no manifold
-4. **Closed-form SVD is the correct target** — 29.8% improvement in one step
-5. **Stagnation penalty forces non-zero predictions** — 1615× velocity increase
-
-### Open Research Questions
-1. Can richer conditioning (full hidden states, not mean) unlock weight generalization?
-2. Can the SVD optimal target alone train a weight flow model (no SGD trajectories)?
-3. Does latent reasoning (thought trajectories, not weight trajectories) have enough structure for diffusion to work?
-4. Can the MetaController + WeightDiffusion composition learn end-to-end lifecycles?
-
----
-
-## 9. Ideas Backlog (IDEAS_BACKLOG.md)
-
-The full backlog is in `IDEAS_BACKLOG.md` (24 items). Below is a cross-referenced summary showing which Phase 3 work already addresses Phase 2 backlog items, and which remain open.
-
-### Phase 3 Work That Addresses Backlog Items
-
-| Backlog # | Idea | Phase 3 Coverage | Status |
-|-----------|------|-----------------|--------|
-| 1 | SelectiveLoRA | Not directly implemented, but **TaylorContribution** (v0.4) provides element-wise importance scoring that could drive selective freezing | Partial |
-| 2 | Direction-Aware Routing | **HybridStreamExpert** with `bidirectional` soft flag + **TAF-LoRA** attention routing provides learned per-token direction selection | ✅ Implemented |
-| 3 | Mixture-of-Direction-Experts | **StreamFusion's expert pool + PerceiverFusion routing** IS an MoE over adapter experts | ✅ Implemented |
-| 4 | Cycled × Flag Combos | **HybridStreamExpert** supports all flag combinations (AFA, AUR, PERA, vector, norm, gate) with soft blending — no cycling needed since all paths are always active | ✅ Exceeded |
-| 5 | Multi-Angle DiagLoRA | Not covered | Open |
-| 6 | Rank Sweep | Not covered (all experiments used r=8) | Open |
-| 7 | Training Depth | Covered by **StreamFusion streaming** (up to 10 segments, 200 steps) | ✅ Implemented |
-| 8 | Cross-Dataset Validation | **5-source training** (arxiv, dolly, ag_news, gsm8k, humaneval) — most comprehensive to date | ✅ Implemented |
-| 9 | Gradient Conflict Measurement | **TaylorContribution** and **AlternatingTrainer** (v0.4) measure per-rank-1 gradient contributions | ✅ Implemented |
-| 10 | Adapter Merging | Not covered — inference speed not optimized | Open |
-| 11 | KnitLoRA Memory | Not covered — Knit still OOM | Open |
-| 12 | BoRA + LayerNorm | **HybridStreamExpert** includes norm flag for all variants | ✅ Implemented |
-| 13 | Toy Model w/ Structure | Not covered | Open |
-| 14 | Switching Interval | **Soft flags + morph_step** make cycling obsolete — continuous blending replaces discrete switching | ✅ Exceeded |
-| 15 | DoRAN vs EDoRA | Not covered (Phase 2 experiment) | Open |
-| 16 | Quantization Behavior | Not covered | Open |
-| 17 | Diagonal Dropout | Not covered | Open |
-| 18 | Frequency-Domain Analysis | Not covered | Open |
-| 19 | SelectiveLoRA × Cycling | Not covered — cycling superseded by soft flags | Open |
-| 20 | Sparsity Ratio Sweep | Not covered | Open |
-| 21 | Importance Metric Comparison | **TaylorContribution** implements gradient-based, Fisher, and sensitivity metrics | ✅ Implemented |
-| 22 | Per-Token vs Per-Seq Routing | **TAF-LoRA routing** is per-token (attention weights per position) | ✅ Implemented |
-| 23 | Fwd/Bwd Asymmetry | Not covered — all experiments used equal rank | Open |
-
-### New Phase 3 Ideas (not in original backlog)
-
-| Idea | Description | Priority |
-|------|-------------|----------|
-| **Flow Matching Over Weights** | Velocity field predicts next weight from current weight + data context. Perfect training fit (MSE ≈ 0), but doesn't generalize to test data. Need richer conditioning or SVD target. | ★★★ |
-| **Closed-Form SVD Optimal Target** | Optimal rank-r update via SVD of R·X⁺. 29.8% loss reduction in one step. Should be the primary training target, not SGD trajectories. | ★★★ |
-| **Stagnation Penalty** | Penalize zero velocity predictions to force non-zero output. Increases velocity norm 1615×. Counteracts model's tendency to predict zero on unseen data. | ★★★ |
-| **Dynamic K (Entropy-Thresholded)** | Drop Perceiver latents with high attention entropy (uniformly attending → useless). Correctly identifies unspecialized latents. | ★★ |
-| **Dynamic K (Adaptive Growth)** | Start with minimum latents, expand when thought change stalls. Mirrors human reasoning (start simple, elaborate when stuck). | ★★ |
-| **Soft Flag Morphing** | Continuous [0,1] flag blending with exponential moving average toward targets. Enables smooth architectural transitions within a segment. | ★★ |
-| **Diffusion Denoising Over Weights** | Predict noise added to weights. **Doesn't work** — MSE stuck at 1.0 because clean weights are unstructured. Not recommended for weight-space applications. | ★ (negative result) |
-| **Latent Reasoning Engine** | Replace weights as flow matching object with thoughts (hidden states). Thoughts have structure → denoising should work. The natural next direction. | ★★★ |
-
-### Priority Recommendation
-
-1. ★★★ **Closed-form SVD as primary target** — drop SGD trajectory matching, train velocity field to predict optimal update directly
-2. ★★★ **Latent Reasoning Engine** — shift from weight-space to thought-space flow matching
-3. ★★ **Richer conditioning** — full hidden state sequence instead of mean, or cross-attention to the input
-4. ★★ **SelectiveLoRA** (backlog #1) — element-wise importance freezing via TaylorContribution
-5. ★★ **Rank sweep** (backlog #6) — does flow matching work better at higher ranks?
+### Next Steps
+1. Run full per-layer sweep on Linux (AVOIDS Windows WDDM allocator issues)
+2. Contrastive TT steering (correct vs incorrect trajectories)
+3. Multi-layer steering combinations (L2+L8)
+4. Reading-head gated adaptive steering

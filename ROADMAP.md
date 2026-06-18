@@ -1,6 +1,23 @@
-# RankAdaptation — Project Roadmap
+# RankAdaptation / TrimTab — Project Roadmap
 
-## Status (June 2026)
+## Status (June 18 2026 — Post-Session 6)
+
+### Latest Results
+- **Baseline**: AWQ Qwen2.5-7B on GSM8K → 60.0% (18/30)
+- **L8 steering (α=0.1)**: 66.7% (20/30) → **+6.7pp** 🎯 Trim-tab confirmed
+- **TT trained**: d_model=768, R²=0.843 (denormalized), checkpoint: `best_tt_awq_7b.pt`
+- **Memory-optimized steering**: Forward hooks save ~800MB vs output_hidden_states
+
+### Windows Issues Resolved
+- ✅ AWQ model loading via gptqmodel + low_cpu_mem_usage=True
+- ✅ Forward hooks work on AWQ quantized layers (all 28)
+- ✅ TF32 + cuDNN benchmark optimizations enabled
+- ✅ `fix_conda_torch.ps1` — automated repair after GPU crashes
+- ❌ `expandable_segments` not supported on Windows WDDM (gptqmodel overrides allocator)
+- ❌ Page file fragmentation after repeated model loads
+- ❌ Shared memory spill at bs=10 for long generation
+
+## Prior State (Pre-Session 6)
 
 Three independent steering mechanisms proven:
 - **Phase 1/3**: Latent→Logit Correction — +13.8pp next-token accuracy
