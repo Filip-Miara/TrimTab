@@ -1,57 +1,134 @@
-# Master Regulators — RankAdaptation
+# Phase 3: Master-Regulator Identification
 
-## Ranking Methodology
-Score = Influence Centrality (0-10) × Junction Leverage (0-10)
-Max possible = 100
+## Ranked by Influence Centrality × Junction Leverage
 
 ---
 
-## #1: Layer 8 (Trim-Tab) — Score: 84
+## MR-1: Normalization Strategy (J08 — D6→A1)
 
 | Attribute | Value |
 |-----------|-------|
-| **Influence Centrality** | 9/10 — Layer 8 is an intermediate layer where attention/MLP computation transitions from pattern detection to reasoning execution. Steering L8 affects ALL downstream layers (9-27). |
-| **Junction Leverage** | 9.3/10 — J2 (TT → h') and J3 (h' → KV cache) combine at L8 to produce the largest observed accuracy effect (+20pp). The leverage is validated on two datasets (GSM8K, SVAMP) and cross-model transfer. |
-| **Modulation Strategies** | Existing: α·v steering via KV-cache modification at L8. Proposed: (1) Per-head steering within L8, (2) Multi-step α schedule for L8 (start strong, decay), (3) RL-optimized α for L8 as a learned parameter. |
-| **Expected Impact** | HIGH — L8 is the confirmed best trim tab with +20pp. Further optimization (per-head, α schedule) may yield +25-30pp. |
-| **Risk** | Over-steering L8 could convert it to a death layer. The α must be kept in the [0.01, 0.3] range. |
+| **Type** | Junction (Dependency) — D6 normalization → A1 Transformer input |
+| **Influence Centrality** | 8.5/10 — Affects every sample, every layer, every gradient update |
+| **Junction Leverage** | 9.0/10 — If changed, alters the entire input distribution; affects all downstream representations |
+| **Combined Score** | 85.3 (highest) |
 
-## #2: Contrastive Direction (v_c - v_i) — Score: 78
+### Why It's #1
+Global normalization (one mean/std per feature across ALL 28 layers and 90K samples) simultaneously:
+1. **Mixes layer statistics**: early layers (high activation variance) and late layers (fine-grained) are normalized identically
+2. **Removes per-layer velocity signal**: mean velocity per layer is subtracted out
+3. **Amplifies noise in low-variance features**: features with near-zero global variance become random noise amplifiers
 
-| Attribute | Value |
-|-----------|-------|
-| **Influence Centrality** | 8/10 — Acts as a *meta-signal* that changes the goal from "predict where the model is heading" to "predict where it should be heading." Affects all downstream steering decisions. |
-| **Junction Leverage** | 9.8/10 — J9 (contrastive composition) is the theoretical bridge from descriptive to normative. If confirmed, it changes the fundamental approach to steering. |
-| **Modulation Strategies** | Existing: contrastive evaluation script (`run_contrastive_eval.py`). Proposed: (1) Asymmetric contrastive weighting γ·v_c - (1-γ)·v_i, (2) Bootstrapped contrastive pairs (multi-head), (3) Online contrastive update during generation. |
-| **Expected Impact** | HIGH — If contrastive direction produces trim tabs on 7B (evaluation pending), this becomes the primary steering mechanism. |
-| **Risk** | Cancellation: v_c - v_i may lose shared structure (both correct and incorrect trajectories share basic language modeling dynamics). |
+### Modulation Strategies
+| Strategy | Cost | Expected Impact | Risk |
+|----------|------|-----------------|------|
+| Change to per-layer normalization (28 separate mean/std) | 1 hour code | +0.02-0.05 R² | Low — trivial change |
+| Add per-layer normalization as additional input features to TT | 2 hours code | +0.03-0.08 R² | Low |
+| Per-sample, per-layer normalization (normalize each trajectory independently) | 3 hours code | +0.01-0.03 R² | Medium — removes trajectory-level signal |
 
-## #3: Per-Layer α Vector — Score: 65
+### Leverage Explanation
+This is the **cheapest change with the highest potential impact**. It accesses systematic information loss behavior identified by Lenses 2 (Dialectical), 4 (Systems — B2 loop), 5 (Abductive — H1), 9 (Adversarial — info-theoretic bounds), and 10 (Paradox 2 — normalization paradox).
 
-| Attribute | Value |
-|-----------|-------|
-| **Influence Centrality** | 7/10 — Replaces a single global α with a vector of 28 layer-specific coefficients. Each layer's steering is independently modulated. |
-| **Junction Leverage** | 9/10 — J6 (layer polarity) combined with J1 (α·v composition) creates a per-layer gain control surface. Allows trim tabs to be amplified while death layers are attenuated. |
-| **Modulation Strategies** | Existing: 4-stage autonomous sweep (`run_autonomous_sweep.py`). Proposed: (1) Gradient-based α learning via validation accuracy, (2) Bayesian optimization over α vectors, (3) Dynamic α(t) per token position. |
-| **Expected Impact** | MED-HIGH — Multi-layer combinations with per-layer α may outperform single-layer steering. Stage 3-4 of autonomous sweep tests this. |
-| **Risk** | Combinatorial explosion: 28 layers × continuous α → infinite search space. Needs efficient optimization. |
+---
 
-## #4: Token Position t=0 (First Generation Step) — Score: 60
+## MR-2: Loss Function Structure (J09 — T8→A1)
 
 | Attribute | Value |
 |-----------|-------|
-| **Influence Centrality** | 8/10 — The first token after the prompt determines the reasoning path. All subsequent tokens are conditioned on this first generated token. Steering at t=0 has maximum causal leverage. |
-| **Junction Leverage** | 7.5/10 — J8 (temporal sequence) means perturbations at early steps compound through the chain. However, current pipeline skips steering at step 0 (first_step=True guard in all eval scripts). |
-| **Modulation Strategies** | Proposed: (1) Remove first_step skip — steer at t=0 for maximum leverage, (2) Exploration schedule: high α at t=0 decaying linearly, (3) Predict velocity from prompt hidden states (not generation hidden states) to steer the very first token. |
-| **Expected Impact** | MED — First-token steering may produce the largest per-step divergence but accuracy impact is uncertain. |
-| **Risk** | Steering the first token could derail the entire generation if α is too high. |
+| **Type** | Junction (Causal feedback) — MSE loss → weight updates |
+| **Influence Centrality** | 9.0/10 — Defines the optimization landscape entirely |
+| **Junction Leverage** | 8.5/10 — Small changes in loss can produce large changes in learned representations |
+| **Combined Score** | 82.5 |
 
-## #5: Layer Polarity Signature (Trim-tab vs Death-layer Identification) — Score: 55
+### Why It's #2
+MSE equally penalizes magnitude error and directional error. For velocity prediction, directional accuracy matters more than magnitude accuracy for steering. Current MSE wastes capacity on magnitude.
+
+### Modulation Strategies
+| Strategy | Cost | Expected Impact | Risk |
+|----------|------|-----------------|------|
+| Decomposed loss: cosine direction + LogCosh magnitude | 3 hours | +0.03-0.06 R² + better directional alignment | Low |
+| Per-layer adaptive weighting (inverse variance weighting) | 4 hours | +0.01-0.03 R² | Low |
+| Contrastive loss: maximize similarity with correct velocity, minimize with wrong | 8 hours | +0.05-0.10 R² | Medium — harder to tune |
+| Add domain-contrastive loss for AWQ/BnB alignment | 6 hours | AWQ transfer improvement | Medium |
+
+### Leverage Explanation
+Lenses 2 (Dialectical — angular+magnitude decomposition), 5 (Abductive — H4), 9 (Adversarial — gradient imbalance) all converge on loss function as key lever.
+
+---
+
+## MR-3: Training Data Composition (L2-6 Data Source)
 
 | Attribute | Value |
 |-----------|-------|
-| **Influence Centrality** | 6/10 — Knowing which layers are trim-tabs and which are death-layers determines the SET of layers available for safe steering. |
-| **Junction Leverage** | 9/10 — J6 (hierarchical: polarity → steering strategy) gates all downstream decisions. Without polarity knowledge, steering cannot be selective. |
-| **Modulation Strategies** | Existing: per-layer sweep (`run_per_layer_sweep.py`). Proposed: (1) Polarity prediction from model architecture alone (without running sweep), (2) Dynamic polarity — trim-tab layers may change per input type, (3) Polarity as a learned function of problem difficulty. |
-| **Expected Impact** | MED — Knowing layer polarity is necessary but not sufficient for improvement. The α and contrastive direction still need optimization. |
-| **Risk** | Polarity may not be stable across tasks. L8 might be trim-tab for math but death-layer for code. |
+| **Type** | Composite (Data Source + Preprocessing) |
+| **Influence Centrality** | 8.0/10 — Determines what the TT can learn |
+| **Junction Leverage** | 8.5/10 — Changing data composition changes learned distribution |
+| **Combined Score** | 72.0 |
+
+### Why It's #3
+Current data (100% BnB Qwen2.5-7B on GSM8K) is homogeneous. The AWQ transfer collapse (0.85→0.45) is primarily a distribution mismatch. Changing what data the TT sees during training can solve the transfer problem at the root.
+
+### Modulation Strategies
+| Strategy | Cost | Expected Impact | Risk |
+|----------|------|-----------------|------|
+| Mix 50% BnB + 50% AWQ trajectories during initial training | 2 days data gen | AWQ R² > 0.70, BnB R² > 0.80 | Low — just needs data |
+| Add domain-adversarial loss (gradient reversal) | 2 days code | Both >0.80 | Medium — tricky to balance |
+| Online trajectory generation from both BnB and AWQ Qwen | 1 week infra | Unlimited data, eliminates I/O bottleneck | High — infrastructure |
+| Curriculum: start with BnB, gradually mix AWQ | 4 hours code | Smooth adaptation | Low |
+
+### Leverage Explanation
+Identified by Lenses 2 (Dialectical — domain alignment), 4 (Systems — R2 loop), 5 (Abductive — H1), 8 (Inspiration — MAML).
+
+---
+
+## MR-4: Layer Specialization (Layer-level prediction structure)
+
+| Attribute | Value |
+|-----------|-------|
+| **Type** | Structural concept (implicit in architecture) |
+| **Influence Centrality** | 7.5/10 — Affects gradient allocation across layers |
+| **Junction Leverage** | 7.5/10 — Weighting layers differently changes where model capacity goes |
+| **Combined Score** | 56.25 |
+
+### Why It's #4
+The system treats all 28 layers as equally important, but velocity structure likely varies dramatically: early layers process token-level features, middle layers build representations, late layers prepare output.
+
+### Modulation Strategies
+| Strategy | Cost | Expected Impact | Risk |
+|----------|------|-----------------|------|
+| Per-layer loss weighting by velocity variance | 2 hours | +0.01-0.02 R² | Low |
+| Layer-group experts (3 heads for early/mid/late) | 3 days code | +0.03-0.05 R² | Medium |
+| Layer-specific prediction heads (28 small heads) | 2 days code | +0.02-0.04 R² | Medium |
+
+---
+
+## MR-5: Attention Mechanism (A7 → bidirectional)
+
+| Attribute | Value |
+|-----------|-------|
+| **Type** | Atomic concept (A7) |
+| **Influence Centrality** | 7.0/10 — Affects all TT forward passes |
+| **Junction Leverage** | 6.5/10 — Changing attention changes representation quality |
+| **Combined Score** | 45.5 |
+
+### Why It's #5
+Bidirectional vs causal attention affects not just R² but the fundamental validity of the training-inference match. Paradox 4 identifies this as a potential training-inference mismatch.
+
+### Modulation Strategies
+| Strategy | Cost | Expected Impact | Risk |
+|----------|------|-----------------|------|
+| Causal mode with same capacity (rerun experiment) | 1 day compute | Possibly -0.02 R² but valid inference | Low — already tested |
+| Hybrid: bidirectional encoding, causal prediction head | 2 days code | Possibly +0.01 R² with valid inference | Medium |
+| Causal with future masking of loss (model can see forward but loss only backward) | 1 day code | Novel approach | Medium |
+
+---
+
+## Summary: Modulation Priority
+
+| Rank | Regulator | Score | Cost | Expected R² Impact | AWQ Impact |
+|------|-----------|-------|------|-------------------|------------|
+| 1 | Normalization strategy | 85.3 | Very Low | +0.02-0.05 | Indirect |
+| 2 | Loss function | 82.5 | Low | +0.03-0.08 | Medium |
+| 3 | Training data composition | 72.0 | Medium-High | +0.01-0.03 | HIGH |
+| 4 | Layer specialization | 56.3 | Low-Medium | +0.02-0.05 | Low |
+| 5 | Attention mechanism | 45.5 | Medium | +/-0.02 | None |

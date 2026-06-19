@@ -100,3 +100,45 @@ Missing:
 - Per-latent entropy computation (need cross-attention weights from Perceiver)
 - Dynamic K integration
 - Diffusive denoising over expert outputs
+
+## Path 6: Advanced Steering Architectures (June 19 2026)
+
+### Key Finding: L9 Death is Layer-Specific, Not Velocity-Specific
+
+Cross-layer steering experiments revealed that L9's velocity is **not inherently deadly** — injecting L9's velocity into L10 gives **+10pp** (same as L10's own velocity). The death only occurs when velocity is injected **at L9 itself**. This suggests the death layer phenomenon is about the **layer's receptivity** to steering, not the velocity direction.
+
+### Proposed Experiments
+
+#### 6.1 Retroactive Steering (Idea 1)
+1. Process forward through L9 without steering, cache L9's hidden state
+2. Continue to L10, compute L10's velocity
+3. Go BACK to L9, apply steering (using L10's velocity at L9's KV cache)
+4. Re-process L9→L10 with the modified KV
+
+Hypothesis: This avoids the recursive collapse (k=2 death) by giving the model a chance to stabilize between layers.
+
+#### 6.2 Cross-Layer Retroactive Steering (Idea 2)
+1. Cache L9's hidden state
+2. Continue to L10
+3. Compute steering FOR L9 (using L9's velocity formula, but applied at L9's cached state)
+4. Apply retroactively to L9
+5. Re-process L9→L10
+
+#### 6.3 Multi-Layer Retroactive Aggregation
+Compute velocities for multiple trim-tab layers (L2, L5, L8, L10), then retroactively apply ALL of them to a single target layer (e.g., L2), and re-process from that layer.
+
+#### 6.4 Iterative Multi-Layer Steering
+Apply steering at one layer, let the model process through several layers to "stabilize," then steer again at a different layer. This contrasts with the k=2 recursive approach (same layer twice) which caused complete collapse.
+
+### Open Questions
+- Does retroactive steering avoid the k=2 collapse?
+- Can multiple trim-tab velocities be combined synergistically?
+- Is there an optimal "steering schedule" across layers (layer order, spacing)?
+
+### Status
+- ✅ L10 confirmed best trim-tab (+10pp AWQ, +13.3pp BnB)
+- ✅ L9 death layer confirmed (0/30)
+- ✅ Recursive same-layer steering causes collapse at k≥2
+- ✅ Cross-layer steering works: L9's velocity at L10 = +10pp
+- ⏸ Retroactive steering (ideas 1-4) — proposed
+

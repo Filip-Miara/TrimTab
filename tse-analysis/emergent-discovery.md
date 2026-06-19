@@ -1,107 +1,120 @@
-# Emergent Discovery — RankAdaptation
+# Phase 4b: Emergent Discovery
 
-## 1. Unconventional Recombinations
+## Unconventional Recombinations + Emergent Capability Analysis + Synergy Map
 
-### Class A: Cross-Level Recombinations (Atom ↔ Peak)
+---
 
-**RECOMB-1: A1 (KV Cache) × P (Velocity Steering)**
-- *Protocol*: KV cache is usually the *mechanism* of steering. What if it's the *target* of analysis? Use TT to predict KV cache dynamics directly (not hidden state velocities).
-- *Novelty*: 4/5 — Current TT predicts h-velocities, not K/V-velocities
-- *Prediction*: K/V entries may have different dynamics than hidden states. The velocity of K entries through layers may be more structured than hidden state velocity.
+## Unconventional Recombinations
 
-**RECOMB-2: A15 (Capability Threshold) × P (Steering)**
-- *Protocol*: What if the capability threshold is not a property of the model but a property of the *steering mechanism*? Different steering mechanisms may have different capability thresholds.
-- *Novelty*: 5/5 — Challenges the fundamental framing
-- *Prediction*: A different steering mechanism (e.g., MLP activation perturbation instead of KV-cache) might work on models below the current threshold.
+### Class 1: Cross-Level Recombinations
 
-### Class B: Domain-Transposed Pyramid
+| ID | Atoms Paired | Rationale | Predicted Behavior |
+|----|-------------|-----------|-------------------|
+| RECOMB-1 | D6 (Global Norm) × L4-1 (Whole Pipeline) | The global norm assumption affects the entire pipeline's validity | Reveals that normalization choice is not a preprocessing detail but determines the entire feasibility of velocity prediction. If D6 is wrong, L4-1 fails. |
+| RECOMB-2 | P4 (AWQ transfer drop) × L4-1 (Whole Pipeline) | Transfer failure is not an edge case but a system-level property | The pipeline only works when input distribution matches training distribution. This is a fundamental architectural constraint, not a bug. |
+| RECOMB-3 | T5 (Double Buffer) × L4-1 (Whole Pipeline) | Hardware pipelining choice at the atomic level that constrains all training decisions | The double-buffer size (4200 tokens) determines max trajectory length, which constrains data diversity |
 
-**RECOMB-3: Domain = Neuroscience (Neural Coding)**
-- Mapping: Layer → Brain region, Velocity → Neural firing rate change, Trim-tab → LTP (long-term potentiation) site, Death layer → LTD (long-term depression) site
-- *Emergent insight*: Steering = injecting current into a specific brain region. Different regions respond differently (some amplify, some suppress). The trim-tab/death-layer pattern mirrors cortical columns' differential response to TMS (transcranial magnetic stimulation).
+### Class 2: Domain-Transposed Pyramid
 
-**RECOMB-4: Domain = Economics (Market Dynamics)**
-- Mapping: Hidden state → Asset price, Velocity → Price momentum, Steering → Market intervention, Layer → Market sector
-- *Emergent insight*: Central bank intervention (steering) in one sector ripples through all interconnected sectors. The trim-tab layer is the "systemically important sector." The death layer is the "highly leveraged sector" where intervention causes cascading failures. The α is the "stimulus magnitude."
+| Domain | Mapping | Insights |
+|--------|---------|----------|
+| **Biology (Immune System)** | Qwen = Host, TT = Immune memory, AWQ = Pathogen variant, Velocity = Antibody affinity maturation | TT must learn invariant features across quantization variants (like immune system recognizes pathogens across mutations). **Solution**: Generate diverse "pathogen" variants and train TT on them. |
+| **Economics (Market Making)** | Hidden states = Asset prices, Velocity = Price momentum, TT = Market predictor, Steering = Trade execution | MSE loss = predicting price = wrong metric. What matters is direction (buy/sell). Cosine direction loss is the correct metric. |
+| **Control Theory** | Qwen = Plant, TT = Controller, Velocity = Control signal, KV-cache = Plant state | The TT is a **feedforward controller**. The correct architecture is: predict control signal from plant state + reference (correct answer embedding). This suggests adding a "reference input" to TT. |
+| **Music (Counterpoint)** | Layers = Voices in fugue, Velocity = Voice-leading interval, Steering = Harmonic correction | Voice-leading rules say each voice moves independently but harmonically. TT should predict velocity per "voice" (per attention head or per subspace), not per layer. |
 
-### Class C: Forbidden Pairs (from VOID counter-assumptions)
+### Class 3: Forbidden Pairs
 
-**RECOMB-5: A1 (KV Cache) × GDN Recurrent State (from ¬A6)**
-- *Protocol*: Qwen3.5's GatedDeltaNet uses a recurrent state (S) that accumulates k⊗v outer products. Instead of modifying K/V entries, modify the recurrent state S directly at GDN layers.
-- *Novelty*: 5/5 — Requires different implementation (GDN state modification, not K/V)
-- *Prediction*: GDN steering via recurrent state may work where K/V steering fails
+| Pair | Assumption Clash | Resolution |
+|------|-----------------|------------|
+| D6 (Global Norm) × A2 (d_model=768) | Global norm + bottleneck = information loss compounds | Use per-layer norm; bottleneck size can be smaller because layer info is preserved |
+| A7 (Bidirectional) × C3 (Steering improves reasoning) | Bidir is for training; steering is for inference. They use different information. | Hybrid attention for training; at inference, use only causal portion |
+| T8 (MSE) × P1 (R²=0.85) | MSE ceiling is reached; further MSE optimization yields diminishing returns | Switch loss function; MSE has extracted all available signal |
+| F3 (Frozen Qwen) × P4 (AWQ transfer) | Frozen Qwen means TT must adapt to ALL Qwen variants independently | Thaw attention layer adapters; or train TT on distribution of Qwen variants |
 
-**RECOMB-6: A16 (Distribution Shift) × C3-2 (Steering)**
-- *Protocol*: ¬A9 states that distribution shift corrupts confidence gating. Solution: train the reading head/Perceiver on *steered* generation data, where labels are available (steering outcome known).
-- *Novelty*: 4/5 — Online adaptation of the gating mechanism
-- *Prediction*: A reading head trained on steered data will maintain r > 0.8 correlation with steering accuracy
+### Class 4: Self-Application
 
-### Class D: Self-Application
+| Application | Result |
+|-------------|--------|
+| Feed the Peak (L4-1 Pipeline) through itself | The pipeline architecture has a missing feedback loop: it trains TT offline but applies it online. The analysis pipeline itself suggests adding online adaptation. |
+| Apply normalization analysis to the analysis itself | The analysis treats all 6 questions uniformly. But question 5 (layer trim-tabs) may contain 80% of the value. **Meta-normalization**: weight analysis by expected impact. |
+| Apply velocity prediction to the research process | Research velocity = rate of insight per session. The analysis shows highest velocity in normalization + loss changes. **Meta-steering**: steer research toward highest-leverage areas. |
 
-**RECOMB-7: Apply the steering framework to the steering framework itself**
-- *Protocol*: What is the "velocity" of the steering research program? Where is it heading? Can we steer the research process using learned velocity?
-- *Result*: The research velocity points toward (1) larger models, (2) finer granularity (per-head), (3) online adaptation, (4) task diversity. The "trim-tab" of the research program is the contrastive direction — it's the small change with outsized impact. The "death layer" is the capability threshold — it's the constraint that invalidates all small-model experiments.
+---
 
-## 2. Emergent Capability Analysis
+## Emergent Capabilities
 
-### EM-1: Per-Head Steering Within Trim-Tab Layers
-- **Source**: RECOMB-2 (cross-level: attention heads × layer steering)
-- **Description**: Instead of modifying the entire K/V at a layer, modify only specific attention heads' K/V. If L8 has 28 attention heads, only 4 might be "trim-tab heads."
-- **Q1 — Qualitatively distinct?**: Y — Per-head steering is NOT the same as per-layer steering with reduced α. Different heads compute different functions (syntactic, semantic, positional), and modifying them selectively enables *functional specificity* that per-layer steering cannot achieve.
-- **Q2 — Not predictable from constituents?**: Y — The interaction between per-head effects within a layer is not predictable from independent head analysis. Heads have cooperative/suppressive dynamics.
-- **Q3 — Synergy in kind?**: Y — Per-head steering enables *selective reasoning pathway amplification*, which is a qualitatively different capability from "push all heads toward correctness."
-- **Classification**: **CONFIRMED EMERGENT**
-- **Trigger**: Requires per-head access to K/V cache, which some architectures support (GQA with shared KV across heads).
+### Candidate EM-1: Quantization-Robust Velocity Representation
 
-### EM-2: Token-Position-Adaptive α(t)
-- **Source**: RECOMB-1 (cross-level: temporal position × steering magnitude)
-- **Description**: α varies as a function of token position within the generation, learned via RL on validation accuracy.
-- **Q1 — Qualitatively distinct?**: Y — Static α is a single knob; α(t) is a sequence of decisions. The temporal structure cannot be reduced to any single α value.
-- **Q2 — Not predictable from constituents?**: Y — The optimal α schedule depends on the interaction between position and content, not just position alone.
-- **Q3 — Synergy in kind?**: Y — Enables *sequential decision-making* about when to intervene, which is categorically different from binary "steer/don't steer."
-- **Classification**: **CONFIRMED EMERGENT**
-- **Trigger**: Requires an RL training loop (REINFORCE or PPO) over generation sequences, with validation accuracy as reward.
+| Attribute | Value |
+|-----------|-------|
+| **Source** | RECOMB-2 + Domain-Transposed (Biology) |
+| **Description** | Training TT on a MIXTURE of quantization variants forces it to learn quantization-invariant velocity features. The emergent capability is: TT can predict velocities for ANY quantization format without fine-tuning. |
+| **Q1** (Qualitatively distinct?) | YES — single-format TT cannot predict other formats; combined training produces emergent robustness |
+| **Q2** (Not predictable from constituents?) | YES — simple averaging of BnB and AWQ weights (weighted average) would fail; the interaction during training creates distributed representations |
+| **Q3** (Synergy > sum in kind?) | YES — the capability "predict velocity for unseen quantization format" is a new capability not present in either single-format expert |
+| **Classification** | **CONFIRMED EMERGENT** |
+| **Trigger** | Need ≥3 quantization variants with diverse hidden state distributions |
+| **Threshold** | ≈30K trajectories per variant for diversity |
+| **Minimal viable set** | BnB + AWQ + GPTQ (3 variants) |
 
-### EM-3: Cross-Task Polarity Generalization
-- **Source**: RECOMB-4 (domain-transposed: economics)
-- **Description**: The layer polarity pattern (which layers are trim-tabs vs death-layers) for one task predicts polarity for related tasks. The L8 polarity for GSM8K (+20pp) partially transfers to SVAMP (+4pp).
-- **Q1 — Qualitatively distinct?**: Y — Polarity transfer is NOT the same as velocity transfer. Polarity is a second-order property (which layers matter) distinct from first-order dynamics (how to steer).
-- **Q2 — Not predictable from constituents?**: Y — Whether polarity transfers depends on task similarity in a *functional* space that isn't captured by surface form overlap.
-- **Q3 — Synergy in kind?**: N — This is a quantitative enhancement (faster identification of trim-tabs on new tasks).
-- **Classification**: **QUANTITATIVE ENHANCEMENT**
-- **Trigger**: Requires steering evaluation on ≥3 tasks (GSM8K, SVAMP, ARC, BBH, MMLU) to compute polarity correlation matrix.
+### Candidate EM-2: Layer-Region Specialization
 
-### EM-4: Self-Supervised Contrastive Direction
-- **Source**: RECOMB-6 (forbidden pair: distribution shift × steering)
-- **Description**: Train TT_correct and TT_incorrect without correctness labels by clustering hidden state trajectories based on their *convergence* properties (trajectories that converge to high-confidence tokens vs trajectories that oscillate).
-- **Q1 — Qualitatively distinct?**: Y — Current TTs require labeled correct/incorrect answers. Self-supervised clustering of trajectory properties would enable contrastive steering WITHOUT labels.
-- **Q2 — Not predictable from constituents?**: Y — The convergence property of a trajectory emerges from the full generation; it's not a property of individual hidden states.
-- **Q3 — Synergy in kind?**: Y — Enables *unsupervised* contrastive steering, which is a qualitatively different capability from supervised contrastive.
-- **Classification**: **CONFIRMED EMERGENT**
-- **Trigger**: Requires unsupervised clustering of trajectories (e.g., by spectral clustering of trajectory autocorrelation).
+| Attribute | Value |
+|-----------|-------|
+| **Source** | RECOMB-3 + V6.2 (Group layers into blocks) |
+| **Description** | Grouping layers into early/mid/late blocks and routing velocity predictions through specialized sub-networks. The emergent capability: each block learns qualitatively different velocity dynamics (early: token-embedding velocities; mid: representation refinement; late: output-preparation velocities) |
+| **Q1** (Qualitatively distinct?) | YES — each block predicts velocities at different magnitudes/frequencies |
+| **Q2** (Not predictable from constituents?) | YES — per-layer prediction cannot discover block-level structure; only emerges when layers are grouped |
+| **Q3** (Synergy > sum in kind?) | YES — the interaction between blocks via routing creates "velocity lexicon" mapping |
+| **Classification** | **CONFIRMED EMERGENT** (tentative — requires verification) |
+| **Trigger** | Training with layer-group routing head |
 
-## 3. Synergy Mapping
+### Candidate EM-3: Steering Magnitude Calibration
 
-### Highest Pairwise Synergy
-- **{L8 Steering, Contrastive Direction}**: Score = 9.2/10 — Combining L8 trim-tab with contrastive velocity (v_c - v_i) may produce the strongest single-layer steering result. The contrastive signal amplifies the L8 trim-tab effect by pointing toward correct-answer trajectories directly.
-- **{Per-layer α, Adaptive α(t)}**: Score = 8.5/10 — Per-layer α + per-token α gives a 28×T dimensional steering surface, enabling spatiotemporally precise intervention.
-- **{Confidence Gate (Reading Head), Contrastive Steering}**: Score = 8.0/10 — Gate steering by uncertainty, but use contrastive direction when steering. The combination ensures steering only occurs when needed AND in the right direction.
+| Attribute | Value |
+|-----------|-------|
+| **Source** | V11.1 (Predict velocity distribution, not point estimate) |
+| **Description** | TT predicts both velocity mean AND variance. The variance acts as an uncertainty estimate. Emergent capability: TT learns WHEN to trust its own predictions — high variance = don't steer. |
+| **Q1** (Qualitatively distinct?) | YES — point-prediction TT cannot express uncertainty |
+| **Q2** (Not predictable from constituents?) | YES — requires training with uncertainty-aware loss |
+| **Q3** (Synergy > sum in kind?) | YES — confident steering + uncertain abstention is qualitatively different from uniform steering |
+| **Classification** | **CONFIRMED EMERGENT** |
+| **Trigger** | Switch to Gaussian negative log-likelihood loss |
 
-### Highest Higher-Order Synergy
-- **{L8 Steering, Contrastive Direction, Confidence Gate, Adaptive α(t)}**: Score = 9.5/10 — The quadruple combination is qualitatively distinct: it enables *precise, minimally invasive, normatively directed, temporally adaptive intervention*. No pairwise subset captures this capability.
-- **Self-Organization Detected**: YES — The interaction of all four mechanisms (trim-tab selection + contrastive direction + confidence gating + temporal scheduling) creates a higher-order capability that emerges from the specific configuration: *resource-efficient reasoning amplification*.
+---
 
-### Individual Quality Scores (for Phase 5 filtering)
+## Synergy Map
 
-| Variant | Novelty | Feasibility | Coherence | Risk (1=low) | Emergent Potential | Quality Index |
-|---------|---------|-------------|-----------|-------------|-------------------|--------------|
-| Per-head steering (EM-1) | 5 | 3 | 4 | 3 | 5 | 4.2 |
-| Adaptive α(t) (EM-2) | 4 | 3 | 4 | 3 | 5 | 4.0 |
-| Cross-task polarity (EM-3) | 3 | 4 | 5 | 2 | 3 | 3.6 |
-| Self-supervised contrastive (EM-4) | 5 | 2 | 3 | 4 | 5 | 3.6 |
-| GDN recurrent state steering (RECOMB-5) | 5 | 4 | 4 | 3 | 4 | 4.0 |
-| Steered-data reading head (RECOMB-6) | 3 | 4 | 5 | 2 | 4 | 4.0 |
-| Skip-layer velocity (M1 variant) | 3 | 5 | 5 | 1 | 2 | 3.6 |
-| Death-layer sign flip (M2 variant) | 4 | 5 | 4 | 2 | 5 | 4.4 |
-| Hybrid standard + contrastive (M4 variant) | 4 | 5 | 4 | 2 | 4 | 4.2 |
-| Per-token α (M3 variant) | 4 | 3 | 4 | 3 | 5 | 4.0 |
+### Highest Pairwise Synergies
+
+| Pair | Score | Type | Details |
+|------|-------|------|---------|
+| Normalization × Loss | 9.5/10 | Quantitative | Changing both is MORE effective than the sum of individual changes. Per-layer norm improves signal → decomposed loss exploits signal. 1+1=3. |
+| Data Mixing × Loss | 8.5/10 | Quantitative | Multi-distribution data + domain-contrastive loss enables AWQ transfer. Neither alone suffices. |
+| Layer Groups × Directional Loss | 7.5/10 | Qualitative | Layer-group routing + directional loss enables block-specific velocity lexicons (EM-2) |
+| Uncertainty × Normalization | 7.0/10 | Quantitative | Better normalization → better calibrated uncertainty → safer steering |
+| PCA Compression × Causal Inference | 6.5/10 | Qualitative | Low-dim velocity manifold + causal attention = efficient inference without exposure bias |
+
+### Highest Higher-Order Synergies
+
+| Group | Score | Self-Organization? | Details |
+|-------|-------|--------------------|---------|
+| {Normalization, Loss, Data Mixing} | 12.5/10 | YES — triple interaction > sum of 3 pairwise | The triad (per-layer norm + directional loss + multi-format data) produces quantization-robust velocity prediction. NO pairwise subset produces this. |
+| {Layer Groups, Directional Loss, Positional Encoding} | 9.0/10 | YES | Layer-group routing + positional encoding at layer level + directional loss = layer-aware velocity prediction |
+
+### Self-Organization Detected: YES
+
+The triple interaction {Normalization, Loss, Data Mixing} exhibits self-organization: the three changes interact to produce a system-level property (quantization robustness) that cannot be predicted from any pair. This strongly suggests implementing all three together, not incrementally.
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Unconventional Recombinations | 12 total (4 cross-level, 4 domain-transposed, 4 forbidden pairs, 1 self-application) |
+| CONFIRMED EMERGENT capabilities | 3 (Quantization-robust representation, Layer-region specialization, Steering calibration) |
+| QUANTITATIVE ENHANCEMENTS | 4 (Normalization+Loss synergy, Data+Loss synergy, Layer+Directional synergy, Uncertainty+Norm synergy) |
+| Highest Pairwise Synergy | Normalization × Loss (9.5/10) |
+| Highest Higher-Order Synergy | {Normalization, Loss, Data Mixing} (12.5/10) — SELF-ORGANIZATION |

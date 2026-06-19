@@ -1,258 +1,412 @@
-# Lens Cascade Analysis — RankAdaptation
+# Phase 2: Multi-Lens Analysis Cascade
+
+## 10-Stacked Lens Analysis of TrajectoryTransformer Pipeline
 
 ---
 
-## Lens 1: ANALOGICAL
+## Lens 1: ANALOGICAL — Structural Isomorphisms
+
+**Blind Spot from Prior**: None (first lens).
 
 ### Structural Findings
-- **Brain-computer interface stimulation**: Like injecting currents into specific brain regions to modulate behavior. L8 is analogous to the supplementary motor area (trim tab), L9 to the amygdala (death layer).
-- **Control theory**: The steering α is a proportional gain term. The TT acts as a forward model (predicts next state given current state). The contrastive approach is a reference-tracking controller (track toward correct trajectory manifold).
-- **Aerospace trim tabs**: L8 functions like a trim tab on an aircraft control surface — a small surface that moves the main control surface. In flight, trim tabs adjust the neutral position of control surfaces. This maps exactly: a small perturbation at one layer modulates all downstream computation.
+- **TT : Qwen :: Autoencoder : Decoder** — TT compresses 3584-dim velocity space → 768-dim latent → reconstructs 3584. Homologous to autoencoder bottleneck.
+- **Global normalization : BatchNorm** — One mean/std across all layers/samples = BatchNorm with population statistics. Mirror of batch-dependent normalization in vision models.
+- **Velocity prediction : Optical flow** — Predicting deltas between consecutive layers is structurally identical to optical flow in video (predict pixel displacement between frames).
+- **Double-buffer prefetch : CPU->GPU texture streaming** — Standard pipelining in graphics pipelines.
 
 ### Relational Findings
-- **Epidemiology**: Trim-tab layers are superspreader nodes (high out-degree influence). Death layers are "vaccine failure" sites where intervention produces worse outcomes. The per-layer specificity mirrors how targeted therapies affect specific signaling pathways.
-- **Ecosystem dynamics**: Keystone species removal (death layer removal) causes ecosystem collapse. L15+ steering = removal of keystone species.
+- **Steering via velocity : Gradient descent on hidden states** — KV-cache modification via predicted velocity is analogous to taking a gradient step in hidden state space toward "better reasoning."
+- **48M parameter predictor for 7B : Small world model for large environment** — Matches predictive coding hierarchy (small model predicts big model's internals).
 
 ### Potential Findings
-- **Analogous solution from control theory**: Model Predictive Control (MPC) — predict K steps ahead, optimize α sequence over horizon, apply first step, recede. This is the per-token α via RL (Open Question 7).
-- **Analogous solution from neuroscience**: Optogenetics — precisely timed light pulses to specific neuron types. The analogue is per-head, per-token temporally-resolved steering.
+- **Composite mirroring**: What if TT is structured to mirror the Qwen layer hierarchy (6 vs 28 layers)? Thinner mirror with down-projection.
+- **Physics simulation analogy**: Velocity + position (hidden state) = Hamiltonian dynamics. Could leverage symplectic integration (Verlet integration preserves energy).
+- **Transfer learning challenge : Domain adaptation in vision** — AWQ shift = covariate shift. Solution space from domain adaptation literature directly applies.
 
 ### Blind Spot Alert
-The analogical lens may overfit to physical/biological metaphors that don't capture the discrete, non-linear nature of transformer computation.
+- **Missing analogy**: TT training is supervised but inference is autoregressive. Supervised velocity prediction ≠ free-running steering. This maps to **exposure bias** in seq2seq literature — the fundamental blind spot.
 
 ---
 
-## Lens 2: DIALECTICAL
+## Lens 2: DIALECTICAL — Thesis/Antithesis/Synthesis
 
-### Thesis
-Velocity-based latent steering works. Hidden state trajectories are learnable (R²=0.85-0.94). Per-layer selective steering on capable models (Qwen2.5-7B) produces significant improvements (+20pp). The pattern generalizes across datasets and model families.
+**Blind Spot from Lens 1**: Exposure bias (train vs inference mismatch).
 
-### Antithesis
-The effect is fragile, dataset-specific, and limited to specific conditions:
-- Small models (<40% GSM8K baseline) show no benefit (all harmful)
-- Math-1.5B (38% baseline, 1.5B params) shows no trim tabs despite being near the threshold
-- SVAMP results (+4pp) are much weaker than GSM8K (+20pp)
-- Contrastive TT evaluation is still pending — it may show no improvement
-- All results use ≤200 problems — insufficient for statistical rigor
-- The TT is descriptive, not normative — it predicts the same errors the model would make
+### Finding 1: Normalization Strategy
+| Thesis | Antithesis | Synthesis |
+|--------|------------|-----------|
+| Global normalization (one mean/std across all layers/samples) normalizes the entire distribution uniformly | Layers have systematically different velocity magnitudes (early layers: large activations; late layers: fine-grained); global norm destroys this signal | **Per-layer normalization with global residual**: normalize each layer independently, then project residual = layer_stat - global_stat as additional feature |
 
-### Synthesis
-The true capability lies in *relative amplification*. Steering doesn't create correct reasoning but amplifies existing neural pathways toward correct answers. The robust finding across models is that:
-1. Velocity dynamics ARE learnable (9/10 confidence)
-2. Layer selectivity IS mandatory (9/10 confidence)
-3. Per-layer patterns ARE generalizable across settings (7/10 confidence)
-4. Contrastive direction IS the theoretically correct approach (8/10 confidence)
+### Finding 2: Attention Type
+| Thesis | Antithesis | Synthesis |
+|--------|------------|-----------|
+| Bidirectional attention gives better R², so use it | Causal attention matches inference-time conditions; bidir leaks future information | **Dual-mode training**: bidir for representation learning (encoder), causal for prediction head (decoder). Or: train with bidir, fine-tune with causal. |
 
-The synthesis reconciles by positing: **steering works on the *error-signal manifold*** — it amplifies the model's own internal correction signal. The TT learns to predict where the model is heading; the steering vector pushes it toward where it *should* be heading. This explains why models need the capability (they must have a correct internal direction) and why layer selectivity matters (only some layers participate in the correction computation).
+### Finding 3: AWQ Transfer
+| Thesis | Antithesis | Synthesis |
+|--------|------------|-----------|
+| Train on BnB → works on BnB; fine-tune on AWQ → forgets BnB | AWQ hidden states are systematically different; no shared representation | **Domain-invariant representation learning**: train on mixed BnB+AWQ data with domain confusion loss (gradient reversal layer) to force shared velocity representations |
+
+### Finding 4: Single Global Model
+| Thesis | Antithesis | Synthesis |
+|--------|------------|-----------|
+| One TT model for all 28 layers | Velocity structure differs dramatically across layers | **Layer-group experts**: 3-4 TT or heads, each specializing in layer groups (1-9, 10-19, 20-28) with soft routing |
+
+### Finding 5: MSE Sufficiency
+| Thesis | Antithesis | Synthesis |
+|--------|------------|-----------|
+| MSE captures both magnitude and direction of velocity | MSE treats all error directions equally; small-angle-high-magnitude errors dominate | **Angular + magnitude decomposition**: predict direction (cosine loss) and magnitude (LogCosh) separately with learned gating |
 
 ### Blind Spot Alert
-The dialectical lens may force a false dichotomy. The truth might be that steering works for a narrow subset of problems/layers/configurations, and neither the strong thesis nor the strong antithesis captures the nuanced reality.
+- **Hidden synthesis**: The deepest contradiction is TT as externally learned correction vs Qwen as internally adaptive system. If Qwen already steers its own hidden states during generation, TT is redundant. Need to measure whether Qwen's hidden states already contain "optimal" velocity information.
 
 ---
 
-## Lens 3: BLENDING
+## Lens 3: BLENDING — Conceptual Integration
 
-### Structural Blend Candidates
-1. **A4 (TT) + A12 (Reading Head)**: Blend TT's velocity prediction with reading head's uncertainty signal → gate α by confidence: α_t = α_base · σ(γ · (τ - ppl_pred_t))
-2. **A6 (Trim-tab) + A8 (Per-layer α)**: Blend layer selection with adaptive coefficients → α_vector: each layer gets its own α optimized via gradient descent on validation accuracy
-3. **C2-3 (Velocity prediction) + C2-5 (Contrastive)**: Blend standard and contrastive velocities → v_total = v_standard + β · (v_c - v_i)
+**Blend 1: TT + Differentiable Neural Computer (DNC)**
+- **Input 1**: TT predicts layer-wise velocities from hidden states
+- **Input 2**: DNC writes to external memory via attention
+- **Blend**: TT predicts *write vectors* for an external memory that stores "useful velocity corrections" keyed by hidden state signatures
+- **Emergent**: Memory-augmented TT can retrieve correction patterns seen during training rather than recomputing from scratch
 
-### Relational Blend Candidates
-1. **J2 (TT→h') + J11 (Distribution shift)**: Blend velocity prediction with distribution shift compensation → fine-tune TT on generation data with domain adversarial loss
-2. **J5 (Capability→steering) + J4 (Cache→token)**: Blend capability threshold with token-level effects → per-token gating: steer only when the model's own generation shows uncertainty, not just baseline accuracy
+**Blend 2: Velocity Prediction + Mixture of Experts (MoE)**
+- **Input 1**: Single TT predicts all 28×3584 velocities
+- **Input 2**: Top-k routing in MoE — only relevant experts activate
+- **Blend**: A routing network predicts which *layer group* needs velocity correction, then specialized sub-TT predicts velocities for that group
+- **Emergent**: Sparse activation = lower compute, better specialization, less interference
 
-### Potential Blend Candidates
-1. **Cross-level (A7 Death Layer × P Peak)**: What if death layers are not destroyed but are *hyper-sensitive* trim tabs with wrong α sign? Flip α sign for death layers → α_neg = -1 · α on L9 may turn it into a trim tab.
-2. **Domain-transposed**: Blending with competitive dynamics from evolutionary game theory — multiple TTs compete for steering bandwidth via attention over the latent steering space.
+**Blend 3: Velocity + Adapters (LoRA-style)**
+- **Input 1**: TT is external predictor attached to Qwen
+- **Input 2**: LoRA adapters modify Qwen's weights directly
+- **Blend**: Instead of KV-cache modification, TT predicts *adapter activations* that get injected into Qwen's forward pass
+- **Emergent**: Internal perturbation vs external steering — potentially more expressive
+
+**Blend 4: Velocity + Contrastive Predictive Coding (CPC)**
+- **Input 1**: MSE prediction of absolute velocity values
+- **Input 2**: CPC learns representations by predicting future in latent space
+- **Blend**: Train TT to maximize mutual information between hidden state sequence and velocity, not minimize MSE
+- **Emergent**: TT learns velocity *directions* (which are what matter for steering) rather than velocity *values*
+
+**Blend 5: TT + Mamba/State Space Models**
+- **Input 1**: Transformer with 48M params for velocity prediction
+- **Input 2**: SSMs have linear-time inference and state propagation
+- **Blend**: Replace transformer with Mamba block trained on the same data; maintain or exceed R² at fraction of compute
+- **Emergent**: State-tracking interpretation: velocity = derivative of SSM state, not of position
 
 ### Blind Spot Alert
-Blending may produce composites that are internally inconsistent (e.g., blending standard and contrastive TT without addressing their potential cancellation).
+- **Missing blend**: TT + Reinforcement Learning. If we can differentiate through the KV-cache steering effect, we could train TT with RL (maximize downstream accuracy) rather than supervision (minimize velocity error).
 
 ---
 
-## Lens 4: SYSTEMS
+## Lens 4: SYSTEMS — Feedback Loops & Leverage Points
+
+**Blind Spot from Lens 3**: RL training signal not considered.
+
+### Variables
+
+| Variable | Symbol | Measurable? | Current Value |
+|----------|--------|-------------|---------------|
+| Velocity prediction accuracy | V_acc | Yes (R², Cos) | R²=0.85 |
+| Steering magnitude | S_mag | Yes (norm of applied velocity) | Unknown |
+| Reasoning accuracy | R_acc | Yes (GSM8K score) | Unknown (not measured) |
+| Distribution shift magnitude | D_shift | Yes (MMD, Wasserstein) | Unknown between BnB/AWQ |
+| Normalization fidelity | N_fid | Yes (per-layer variance ratio) | Not measured |
+| Input trajectory diversity | T_div | Yes (coverage metrics) | Unknown |
+| Training stability | Stab | Yes (loss variance, gradient norms) | Known unstable (CUDA crashes) |
 
 ### Feedback Loops
-1. **Reinforcing (positive) loop**: Correct steering → better token → better next hidden state → better velocity prediction → correct steering AND even better next token. L8 trim-tab exploits this.
-2. **Balancing (negative) loop**: Steering → token divergence → model computes on different hidden states → TT receives unfamiliar inputs → worse predictions → token degrades → model collapses. L9 death layer triggers this.
-3. **Self-limiting loop**: Larger α → more divergence → more unfamiliar states → more prediction error. This bounds the useful α range (0.05-0.3 empirically).
 
-### Delays
-- **TT prediction delay**: 1 forward pass (TT inference) + 1 KV-cache modification before steering affects token selection
-- **Steering effect latency**: ~2-3 tokens before steered representations fully influence attention patterns (KV entries must accumulate)
-- **Accuracy measurement delay**: Full generation (200 tokens) before binary correct/incorrect known
+| Loop ID | Type | Structure | Description |
+|---------|------|-----------|-------------|
+| R1 | Reinforcing | *Better velocity pred → Better steering → Better reasoning → More informative hidden states → Better velocity pred* | Virtuous cycle: if accurate steering leads to states that are easier to predict |
+| B1 | Balancing | *Poor velocity pred → Noisy steering → Degraded hidden states → Different distribution → Even worse pred* | Vicious cycle: prediction errors compound through feedback |
+| B2 | Balancing | *Global norm → Shrinks per-layer variance → Reduces signal for prediction → More aggressive norm needed* | Normalization destroying signal |
+| R2 | Reinforcing | *More layers in TT → Better capacity → Better R² → But more overfitting to BnB distribution* | Capacity-diversity tradeoff |
+| B3 | Balancing | *TF32 → Faster training → More batches → But precision noise accumulates* | Speed vs stability tradeoff |
 
-### Side Effects
-1. **Token cascade**: One steered token changes all subsequent hidden states → compounding steering effects
-2. **Attention drift**: Modified K/V entries change attention distributions in later layers, not just the steered layer
-3. **Cache corruption**: Repeated steering of the same layer's cache entries may create internally inconsistent representations
+### Leverage Points (Meadows' 12 Places)
 
-### Leverage Points
-1. **L8**: Highest leverage (+20pp), suggesting it's a critical branching point in the model's reasoning computation
-2. **First generation step (t=1)**: The first step after the prompt determines the entire trajectory — highest leverage for steering
-3. **Contrastive direction**: Changes the *goal* of steering from descriptive to normative — a higher-order leverage point
+| Rank | Point | Type (Meadows Level) | Intervention | Impact | Effort |
+|------|-------|---------------------|-------------|--------|--------|
+| 1 | Loss function | 6 (Structure of info flows) | Replace MSE with directional loss that ignores magnitude | HIGH | LOW |
+| 2 | Normalization | 5 (Rules of system) | Per-layer normalization instead of global | HIGH | LOW |
+| 3 | Training data composition | 5 (Rules of system) | Mix BnB+AWQ trajectories during training | HIGH | MED |
+| 4 | Attention type | 6 (Structure of info flows) | Hybrid bidir-causal with regularization | MED | MED |
+| 5 | Multi-objective training | 6 (Structure of info flows) | Add contrastive/domain-confusion loss | MED | MED |
+| 6 | Expert specialization | 4 (Self-organization) | Layer-group routing + sub-experts | HIGH | HIGH |
 
 ### Blind Spot Alert
-System lens treats the model as a static system, but transformer computation is input-dependent — the same layer may be trim-tab for one input and death-layer for another.
+- **Missing leverage**: *Goal alignment* (Meadows Level 2). The system's goal is "minimize velocity MSE" but the actual goal should be "maximize reasoning accuracy." If minimizing MSE doesn't correlate with steering success, the entire system is optimizing the wrong objective.
 
 ---
 
-## Lens 5: ABDUCTIVE
+## Lens 5: ABDUCTIVE — Best Explanations for Observed Failures
 
-### What structure best explains the observed failures?
+**Blind Spot from Lens 4**: Goal mismatch between training objective and actual system purpose.
 
-**Failure 1: Math-1.5B has no trim tabs despite 38% baseline (near threshold)**
-- Best explanation: Math-1.5B is a *base model*, not *instruct-tuned*. Instruct tuning may be necessary to create separable correct/incorrect hidden state manifolds. Base models may not have learned to structure their internal representations around "correct answer" vs "incorrect answer" — they just compute.
-- Alternative: The 28-layer, 1536-dim architecture may not have enough representational capacity for separable manifolds.
+### Failure 1: R²=0.85 ceiling
 
-**Failure 2: All steering mechanisms on Qwen3.5-2B failed**
-- Best explanation: Hybrid attention (24 layers, only 6 with standard MHA) means 75% of layers cannot be steered via KV-cache. The 25% steerable layers may not be the computational bottleneck.
-- Alternative: The GatedDeltaNet layers' recurrent state may absorb the steering perturbation, making it invisible.
+| Candidate Explanation | Explanatory Power | Parsimony | Combined | What Would Disprove |
+|---------------------|-------------------|-----------|----------|---------------------|
+| **H1**: Global normalization destroys per-layer velocity structure | 0.85 | 0.90 | 0.875 | Train with per-layer norm, show no improvement |
+| **H2**: Transformer capacity insufficient (48M too small for 0.5M-dim prediction) | 0.75 | 0.80 | 0.775 | Scale to 100M+ params, show no improvement |
+| **H3**: Velocity prediction has irreducible noise component | 0.80 | 0.85 | 0.825 | Compute upper bound from noise ceiling (repeated trajectories) |
+| **H4**: MSE loss is wrong objective (minimizes magnitude error, not direction) | 0.90 | 0.75 | 0.825 | Train with cosine-only loss, show no improvement |
+| **H5**: Bidirectional attention overfits to training-time patterns | 0.70 | 0.70 | 0.700 | Use causal attention with equal capacity, show no degradation |
 
-**Failure 3: PPL-modulated correction had <0.1% gate rate**
-- Best explanation: The model is confidently wrong. Its perplexity on incorrect tokens is not distinguishable from correct tokens' perplexity. The reading head was trained on token-level perplexity, not answer-level correctness.
+**Best explanation**: **H1 + H4 combined** — Global normalization mixes layer statistics (destroying signal) AND MSE optimizes the wrong thing (rewarding magnitude accuracy over directional correctness).
 
-**Failure 4: Distribution shift (prompt→generation) killed logit correction**
-- Best explanation: Hidden states during prompt processing and generation occupy different regions of the latent space. The correction head learned prompt-specific patterns that don't transfer.
+### Failure 2: AWQ Transfer Collapse (R² 0.85→0.45)
 
-### What potential explanation hasn't been considered?
-- **The velocity structure might be an artifact of LayerNorm statistics**: The hidden state norm increases through layers in a predictable way. The TT may be learning this norm growth pattern, not meaningful dynamical structure. High R² reflects predictable norm scaling.
+| Candidate | Exp Power | Parsimony | Combined | Disproof |
+|-----------|-----------|-----------|----------|----------|
+| **H1**: AWQ changes hidden state distribution globally (affine shift) | 0.80 | 0.95 | 0.875 | Normalize AWQ states to BnB distribution, check if R² recovers |
+| **H2**: AWQ changes hidden states in a layer-specific, non-linear way | 0.75 | 0.60 | 0.675 | Fine-tune last 2 TT layers only on AWQ, check if BnB performance is retained |
+| **H3**: AWQ amplifies noise in certain features that TT relied on | 0.70 | 0.70 | 0.700 | Feature ablation: remove top-5 features TT weights most, measure R² drop |
+
+**Best explanation**: **H1** — Most likely an affine distribution shift. Quick test: compute per-feature mean/std of AWQ and BnB hidden states, measure Wasserstein distance. If close to affine, align via simple normalization.
+
+### Failure 3: Catastrophic Forgetting
+
+| Candidate | Exp Power | Parsimony | Combined | Disproof |
+|-----------|-----------|-----------|----------|----------|
+| **H1**: TT capacity insufficient for multi-distribution representation | 0.85 | 0.90 | 0.875 | Add LoRA adapters for AWQ, keeping BnB weights frozen |
+| **H2**: Gradient interference: AWQ gradient direction conflicts with BnB | 0.80 | 0.85 | 0.825 | Compute gradient cosine similarity between BnB and AWQ losses |
+| **H3**: Elastic weight consolidation needed | 0.70 | 0.75 | 0.725 | Apply EWC with BnB as anchor, measure forgetting reduction |
+
+**Best explanation**: **H1** — Most parsimonious. Capacity limitation is the classic cause of forgetting.
+
+### Failure 4: CUDA Crashes
+
+| Candidate | Exp Power | Parsimony | Combined | Disproof |
+|-----------|-----------|-----------|----------|----------|
+| **H1**: Double-buffer prefetch + TF32 creates race condition | 0.75 | 0.80 | 0.775 | Disable async prefetch, check if crashes stop |
+| **H2**: float16 gradient overflow in output projection | 0.70 | 0.75 | 0.725 | Use mixed precision (bf16 for output head), check stability |
+| **H3**: Memory fragmentation from 4200×28×3584 buffer allocations | 0.65 | 0.70 | 0.675 | Allocate buffers once at startup, reuse |
+
+**Best explanation**: **H1** — Most likely a concurrency issue with async CUDA streams.
 
 ### Blind Spot Alert
-Abductive reasoning tends to produce the simplest explanation. The truth may involve multiple interacting causes (distribution shift + quantization + capability threshold all matter).
+- **Missing candidate**: What if R²=0.85 IS the noise ceiling — meaning the velocity *cannot* be predicted more accurately from hidden states alone, and improvement requires additional input features (e.g., attention patterns, token embeddings, layer-specific metadata)?
 
 ---
 
-## Lens 6: TRAJECTORY
+## Lens 6: TRAJECTORY — Temporal Projection
 
-### Structural Evolution
-The project evolved through clear phases:
-1. **LoRA adapter comparisons** → weight flow prediction (failed: R²≈0)
-2. **Thought flow matching** → Perceiver over hidden states (R²=0.29)
-3. **TrajectoryTransformer** → direct self-attention over hidden states (R²=0.62 layer, 0.75 reasoning-step)
-4. **Generation trajectories** → training TT on actual generation data (R²=0.85-0.94)
-5. **Per-layer steering** → selective trim-tab (L8: +20pp)
-6. **Contrastive TT** → normative correction (evaluation pending)
+**Blind Spot from Lens 5**: Noise ceiling hypothesis not explored.
 
-Each phase addressed a bottleneck from the previous phase: weight → hidden states → Perceiver bottleneck → layer-to-layer → token-to-token → all-layers → per-layer → descriptive → normative.
+### If NO changes (current trajectory):
 
-### Relational Evolution
-- Early: "Velocity must exist somewhere" → finding it in layer transitions
-- Middle: "Can we steer with velocity?" → yes, but geometrically constrained to KV cache
-- Late: "Where should we steer?" → per-layer selectivity discovered
-- Current: "Can we steer toward the correct answer specifically?" → contrastive direction
+| Timescale | State Description | Most Likely Failure | Probability |
+|-----------|------------------|-------------------|-------------|
+| 1 more session | R² stuck at ~0.85, CUDA crashes frustrate scaling attempts | Hardware crash during long training run | 0.7 |
+| 5 sessions | Research dead-end: incremental tuning yields <0.01 R² improvement | Abandonment of velocity prediction approach | 0.6 |
+| 20 sessions | Without resolving AWQ transfer, TT is pinned to one model variant | Fork: one TT per quantization format (maintenance burden) | 0.8 |
 
-### Trajectory Extrapolation
-**Where is the system heading?**
-- Next: Contrastive evaluation on 7B → if it works, the framework is complete for binary accuracy
-- Short-term: Per-token α optimization via meta-learning or RL on validation accuracy
-- Medium-term: Multi-head contrastive ensembles, asymmetric α sweeps
-- Long-term: Real-time adaptive steering during generation, non-math task evaluation
+### Next Opportunity
+- **Immediate**: Change normalization → per-layer. Expected R² gain: +0.02-0.05. Cost: 1 hour of coding. Highest ROI by far.
+- **Short-term**: Multi-objective loss (direction + magnitude + domain confusion). Expected gain: +0.03-0.08 R² + AWQ transfer.
+- **Medium-term**: Online trajectory generation from Qwen during training. Eliminates I/O bottleneck, increases data diversity naturally.
 
-### Destructive trajectories
-If contrastive TT fails:
-- The descriptive→normative conversion may require more sophisticated methods (RL, direct preference optimization on velocities)
-- Capability threshold may be higher than 40% (maybe 60%+)
-- Steering may be a fundamentally limited approach for small models
+### Inflection Points
+
+| Point | Trigger | Consequence |
+|-------|---------|-------------|
+| Normalization change shows 0% improvement | Assumption: normalization is not the bottleneck → shift focus to architecture | Save weeks of tuning |
+| R² exceeds 0.90 | Validation that velocity prediction has headroom | Opens deployment path |
+| AWQ R² after normalization > 0.70 | AWQ transfer is primarily distribution shift | Domain adaptation approach validated |
+| Cosine loss alone beats MSE | Entire loss paradigm shifted | Abandon MSE |
+
+### Key Assumptions
+- GSM8K trajectories generalize to other reasoning tasks
+- Velocity prediction accuracy correlates with KV-cache steering quality
+- R²=0.85 is not a noise ceiling
+
+### Early Warning Signs
+- Per-layer normalization doesn't improve R² → noise ceiling
+- AWQ/BnB distribution difference is huge (Wasserstein > 1.0) → need domain adaptation
+- Gradient conflict score close to -1.0 → fine-tuning impossible without EWC
 
 ### Blind Spot Alert
-The trajectory lens assumes monotonic improvement across phases. The project could plateau at the current stage if contrastive TT fails.
+- **Missing trajectory**: What if the field moves to different architectures (Mamba, GatedDeltaNet, etc.) and Qwen becomes obsolete before TT matures? The TT is tightly coupled to Qwen's specific hidden state structure.
 
 ---
 
-## Lens 7: METACOGNITIVE
+## Lens 7: METACOGNITIVE — What Are We Missing?
 
-### Structural Blind Spots
-1. **Head-level granularity**: All analysis uses full-layer granularity. Trim-tab/death-layer effects might operate at the attention-head level. L8 could have 28 attention heads of which only 4-5 are trim-tabs, with the rest averaging to nothing.
-2. **α non-linearity**: α sweeps tested discrete values (0.01-0.5), but the accuracy-α relationship might be non-monotonic with multiple peaks.
-3. **Problem difficulty binning**: Averaging accuracy across easy and hard problems might hide effects. Steering might help on hard problems and hurt on easy ones.
-4. **Token-position effects**: Steering at early tokens (first 10-20% of generation) vs late tokens may have different effects.
+**Blind Spot from Lens 6**: Technology risk (TT tightly coupled to Qwen architecture).
 
-### Relational Blind Spots
-1. **Layer synergy/antagonism**: The analysis tests layers independently and in simple combos. There may be synergistic multi-layer patterns (e.g., steer L8 for reasoning, L15 for output formatting).
-2. **Per-step consistency**: Does steering help every step or only some steps? The per-step token logit analysis could reveal intermittent effects.
-3. **Interaction with sampling temperature**: All tests use greedy decoding (do_sample=False). Steering might work differently with temperature > 0.
+### Embedded Assumptions
 
-### Potential Blind Spots
-1. **Could steering be applied to other model internals?** KV cache modification is one mechanism. What about modifying MLP activations, attention logits, or the residual stream directly?
-2. **What if the correct manifold is not velocity but acceleration?** h[l+2] - 2h[l+1] + h[l] might carry the correction signal.
-3. **Is the reading head's perplexity signal the right gate?** Alternative gates: logit entropy, attention entropy, hidden state magnitude change.
+| Assumption | How It Shapes Findings | Alternative |
+|------------|----------------------|-------------|
+| Velocity is the right target | All analysis focused on predicting velocity better; never questioned | Attention pattern deltas, activation magnitude changes, subspace rotations |
+| 28 layers are equally important | All analysis treats layers uniformly | 80% of steering value may come from 3-5 critical layers |
+| GSM8K is representative | Findings implicitly generalize beyond GSM8K | Velocity patterns may be task-specific |
+| R² is the right metric | "Improving R²" drives all recommendations | R² improvement may not translate to better reasoning |
+
+### Systematic Gaps
+
+| Gap | Why Missed | How to Fill |
+|-----|-----------|-------------|
+| **Ground truth**: What is the "correct" velocity? | Velocity is defined as layer-to-layer delta of the frozen model; this is just one path | **Counterfactual experiment**: For input pairs (correct answer, wrong answer), compute velocity difference. The difference IS the ground truth steering direction. |
+| **Downstream validation**: Does velocity prediction improve reasoning? | Pipeline measured only R², not end-to-end accuracy | Run end-to-end: TT → Steering → GSM8K accuracy. Measure correlation. |
+| **Layer importance distribution**: Which layers matter for steering? | All layers treated equally | Ablation experiment: mask velocity for each layer, measure R² drop per layer |
+| **Velocity manifold structure**: Do velocities lie on a low-dimensional manifold? | Assumed full-rank 3584-dim space | PCA on velocity targets → measure explained variance ratio |
+| **Adversarial/stress testing**: When does TT fail worst? | Only average metrics reported | Identify trajectories where R² < 0.5; characterize them |
+
+### Confidence Calibration
+
+| Area | Status | Bias Source |
+|------|--------|-------------|
+| Overconfident: MSE is "good enough" | High R² overrides concerns | Outcome bias (R²=0.85 looks good) |
+| Underconfident: Architecture capacity | "Maybe 48M is enough" without evidence | Anchoring on current architecture |
+| Blind: Downstream validation | Not measured at all | Assumption that better R² → better steering |
+
+### Unasked Questions
+
+1. **Why 28 layers?** Qwen has 28 layers. What if velocity prediction only needs the last 10?
+2. **What does the TT latent space look like?** d_model=768 space — is it structured?
+3. **Can we train WITHOUT frozen Qwen?** Joint training: TT + LoRA on Qwen for steering?
+4. **What is the velocity distribution?** Heavy-tailed? Gaussian? Bimodal?
+5. **Are velocities sparse?** Could we predict only top-k velocity components by magnitude?
 
 ### Blind Spot Alert
-This self-reflective pass identifies that the current framework is layer-centric, α-static, and accuracy-aggregated. Finer temporal and structural granularity may reveal new patterns.
+- **Meta-blind spot**: The entire analysis framework assumes velocity prediction is the correct path. What if velocity is NOT the right steering signal and something else (attention entropy, hidden state curvature, subspace angles) works better?
 
 ---
 
-## Lens 8: INSPIRATION
+## Lens 8: INSPIRATION — Cross-Domain Adaptations
 
-### Foreign-domain structures
-1. **Differentiation (calculus)**: Velocity = first derivative of hidden state w.r.t. layer index. What about second derivative (acceleration = curvature of hidden state trajectory)? Steering might work by modifying curvature, not just slope.
-2. **Molecular dynamics (physics)**: Simulated annealing where steering α is the "temperature" that decreases over generation steps. Start with high α to explore, decrease to exploit.
+### Source: Computational Fluid Dynamics (CFD)
+- **Mechanism**: In CFD, velocity fields are predicted on coarse grids and refined via learned super-resolution
+- **Adaptation**: Predict velocities on a *subsampled* layer grid (e.g., every 3rd layer → 10 layers) then upsample to 28 layers via learned interpolation
+- **Constraints**: 7B model has 28 layers, not 10; but layers are sequential → interpolation is plausible
+- **Novel adaptation**: 4× compute reduction, potential regularization benefit
 
-### Foreign-domain dynamics
-1. **Adaptive cruise control (automotive)**: PID controller where α is the proportional term, the TT is the derivative term (predicting where states are heading), and accuracy history is the integral term.
-2. **Genetic algorithms**: Steering multiple copies of the model in parallel with different α/layer combos, selecting the best, "mutating" α values.
+### Source: Neural Radiance Fields (NeRF)
+- **Mechanism**: NeRF predicts color+density at continuous 3D positions using positional encoding
+- **Adaptation**: Replace learned position embeddings with sinusoidal positional encoding (NeRF-style) for layer index
+- **Constraints**: Layers are discrete (1-28) but velocity as a function of layer index may be smooth
+- **Novel adaptation**: Better generalization because position encoding captures layer-to-layer continuity
 
-### Foreign-domain solutions
-1. **Boosting (ML)**: Train multiple TTs sequentially, where each TT focuses on errors of the previous ensemble. This is the multi-head contrastive ensemble idea.
-2. **Thompson sampling (bandit)**: Treat per-layer α selection as a multi-armed bandit. Each layer is an arm with unknown accuracy reward. Pull arm → observe accuracy → update α.
+### Source: Momentum Contrast (MoCo) / BYOL
+- **Mechanism**: Self-supervised learning uses a momentum encoder to generate stable training targets
+- **Adaptation**: Create a momentum-Qwen that maintains a moving average of hidden states; TT predicts velocity toward momentum states rather than raw deltas
+- **Constraints**: Requires two forward passes through 7B; compute doubles
+- **Novel adaptation**: Momentum targets are smoother, less noisy → higher R² achievable
+
+### Source: Meta-Learning (MAML)
+- **Mechanism**: Train a model that can quickly adapt to new tasks with few gradient steps
+- **Adaptation**: Meta-train TT across multiple quantization formats (BnB, AWQ, GPTQ) so it learns a shared initialization that adapts rapidly
+- **Constraints**: Requires trajectories from multiple quantized variants; data generation cost
+- **Novel adaptation**: "One TT to rule them all" — load and adapt in one gradient step
+
+### Source: Neural ODEs / Continuous Normalizing Flows
+- **Mechanism**: Model hidden state evolution as an ODE: dh/dt = f(h, t)
+- **Adaptation**: Velocity prediction IS dh/dt. Model as continuous-time ODE where the TT learns the vector field across the layer dimension
+- **Constraints**: ODE solvers require multiple function evaluations; higher inference cost
+- **Novel adaptation**: Smooth interpolation: TT can predict velocity at *any* layer position, not just integer indices
 
 ### Blind Spot Alert
-Inspiration from foreign domains must be validated in the transformer context. Physical analogies break at discrete token boundaries.
+- **Missing inspiration**: Model-based RL / World Models. The TT is a world model of Qwen's internal dynamics. Dreamer-style training (imagine trajectories, train on imagined data) could apply.
 
 ---
 
-## Lens 9: ADVERSARIAL
+## Lens 9: ADVERSARIAL — Attacks & Defenses
 
-### Cheapest structural attack
-- **Adversarial steering**: What if an adversary could steer your model? The mechanism requires access to the model's hidden states and the ability to modify KV cache entries. During normal inference with a trusted pipeline, this isn't an attack vector. But if someone controls the TT, they could provide malicious velocity predictions that push the model toward incorrect answers. L9 is already a "death layer" — an adversary would exploit it.
+### Finding 1: R² Ceiling Attack
+- **Target**: MSE loss minimization (P1: R²=0.85)
+- **Vector**: (c) No-free-lunch: optimizing MSE does not guarantee optimal steering
+- **Severity**: 0.85 — if R² doesn't correlate with reasoning, the entire enterprise is optimizing a proxy
+- **Defense**: End-to-end validation experiment linking R² to reasoning accuracy
 
-### Relationship that, if broken, collapses the system
-- **J4 (Cache→Next token)**: If modified KV cache entries don't affect token selection (e.g., because attention heads ignore them), the entire steering mechanism collapses. The 95% token divergence rate suggests this works, but for the 5% of tokens that don't change, the mechanism is invisible.
-- **J5 (Capability→Steering)**: If the model doesn't have the capability, steering is useless. This is the most critical structural constraint.
+### Finding 2: AWQ Transfer Attack
+- **Target**: P4 (R² drop from 0.85→0.45)
+- **Vector**: (d) Empirical counter-evidence: the distribution shift is so large that velocity is not a transferable quantity
+- **Argument**: If AWQ changes hidden states such that velocity vectors undergo non-linear transformation, predicting velocity on BnB and applying to AWQ is fundamentally unsound
+- **Severity**: 0.90 — questions core viability
+- **Defense**: Learn a *correction function*: small MLP that maps AWQ hidden states to BnB-equivalent states before velocity prediction
 
-### What misapplication causes harm?
-- **Steering on models below capability threshold**: Not just neutral but *harmful* (all small models showed accuracy degradation). This means the steering vector actively pushes away from the correct answer when the model can't compute one.
-- **All-layer steering with uniform α**: Compounds death-layer noise, destroying accuracy (-45pp+). The dangerous default is to steer everything.
+### Finding 3: Architecture Attack
+- **Target**: A1 (6-layer Transformer)
+- **Vector**: (b) Capacity mismatch: 48M params / 3584 output = 13,393 parameters per output dimension. This is very low for 0.5M-dimensional prediction
+- **Argument**: Predicted output has 0.5M dimensions (28×3584×2 = velocity magnitude+direction). With 48M params, each output dim gets ~100 params. This is severely bottlenecked
+- **Severity**: 0.80 — architecture is under-parameterized for the task
+- **Defense**: Increase capacity OR reduce output dimensionality (PCA, group prediction)
+
+### Finding 4: Normalization Attack
+- **Target**: D6 (Global normalization)
+- **Vector**: (a) Info-theoretic bounds: compressing 28×3584 distribution into 3584 mean/std discards per-layer information
+- **Argument**: Mutual information I(hidden_layer, normalization_param) is reduced by 28×. Per-layer variance information is destroyed
+- **Severity**: 0.85 — fundamental information loss
+- **Defense**: Per-layer normalization (trivial change, high impact)
+
+### Finding 5: Gradient Interference Attack
+- **Target**: T8 (MSE loss) applied to all 28 layers uniformly
+- **Vector**: (a) Info-theoretic bounds: gradients from early and late layers can conflict
+- **Argument**: If early-layer velocities are 10× larger in magnitude than late-layer, MSE gradients are dominated by early layers. Weight updates ignore late-layer signal
+- **Severity**: 0.75 — gradient imbalance
+- **Defense**: Per-layer loss normalization (scale MSE by inverse variance per layer) or per-layer prediction heads
+
+### Finding 6: CUDA Crash Attack
+- **Target**: P6 (CUDA crashes)
+- **Vector**: (e) Overfitting trap: the double-buffer prefetch creates a hidden dependency on async stream ordering
+- **Argument**: The system appears to work but fails under sustained load because async prefetch + TF32 creates implicit ordering assumptions that break under heavy GPU utilization
+- **Severity**: 0.70 — reliability issue
+- **Defense**: Synchronous prefetch (2× slower but stable) or CUDA graph recording
+
+### Findings Ranked by Severity
+
+1. **AWQ transfer (0.90)** — Core viability question
+2. **Global normalization info loss (0.85)** — Fundamental
+3. **MSE≠steering-correlation (0.85)** — Proxy optimization
+4. **Under-parameterization (0.80)** — Capacity bottleneck
+5. **Gradient imbalance (0.75)** — Training inefficiency
+6. **CUDA instability (0.70)** — Reliability
 
 ### Blind Spot Alert
-Adversarial analysis assumes malicious intent. The more likely failure is accidental misuse (steering wrong α, steering all layers, steering incapable models).
+- **Critical missed attack**: What if a small perturbation to input hidden states (adversarial noise) causes TT to make catastrophically wrong velocity predictions? Adversarial robustness of velocity prediction is untested.
 
 ---
 
-## Lens 10: PARADOXICAL
+## Lens 10: PARADOXICAL — Self-Reference & Inversion
 
-### Structural Self-Reference
-**Paradox 1**: The TT needs to be trained on the model's own generation data to work at generation time. But the steering effect changes the model's generation, which produces data the TT wasn't trained on. This is a *distribution shift paradox* — the TT's predictions become less valid as steering becomes more effective.
+### Paradox 1: The Steering Contradiction
+- **Statement**: "TT predicts velocities to steer Qwen's KV-cache toward better reasoning"
+- **Self-reference**: If TT successfully steers Qwen toward correct reasoning, then the steered hidden states are different from the training distribution (which was from unsteered Qwen). TT must predict velocities for states it has never seen.
+- **Gödel sentence**: "This velocity prediction is only valid for models that have not been steered by velocity predictions."
+- **Resolution**: Online adaptation loop — TT must be fine-tuned on steered trajectories, creating a moving target
 
-**Paradox 2**: More accurate velocity prediction (higher R²) doesn't necessarily mean better steering. A TT that perfectly replicates the model's error patterns (descriptive) would steer toward the *same wrong answers*. R² and steering efficacy may be inversely related once R² > 0.9.
+### Paradox 2: The Normalization Paradox
+- **Statement**: "Normalization improves training by centering and scaling hidden states"
+- **Inversion**: What if normalization removes the exact signal TT needs to predict velocity? Velocity IS the difference between consecutive layers. Global normalization can amplify or suppress these differences non-uniformly.
+- **Resolution**: Normalize after computing velocity targets, not before. Or: normalize input hidden states but compute velocity targets BEFORE normalization.
 
-### Relational Gödel Sentence
-**Gödel statement**: "This steering vector improves accuracy for all test inputs." — The claim is unfalsifiable because any failure can be attributed to wrong α, wrong layer, wrong model capability, or wrong dataset. The system has no internal check against this self-serving claim.
+### Paradox 3: The Capacity Paradox
+- **Statement**: "48M parameters should be enough for velocity prediction"
+- **Inversion**: The 7B model has 28×3584 = 100,352 hidden state dimensions. Velocity has the same number. A 48M predictor for a 100K-dim target ratio = 480×. But the Qwen itself is 7B and can't predict its own velocities. How can a 0.7%-scale model predict the full-dynamics of its parent?
+- **Gödel sentence**: "This 48M model cannot completely model the 7B model's internal dynamics because if it could, it could be used to compress the 7B model."
+- **Resolution**: TT doesn't need to model all 100K dims perfectly — it only needs to model the *steerable subspace*.
 
-### Limit Inversion
-**What happens when α → ∞?** At α=0.1, L8 gives +20pp. At α=2.0, any-layer steering produces 100% token divergence (all tokens change). The accuracy-α curve must eventually invert — too much steering destroys computation entirely. There's a "goldilocks zone" between 0.01 and 0.3.
+### Paradox 4: The Training-Inference Paradox
+- **Statement**: "Train with bidirectional attention for best prediction accuracy"
+- **Inversion**: At inference time, future layers don't exist yet (autoregressive). The TT sees hidden states up to the current layer only. Bidirectional training creates dependency on future layers that doesn't exist at inference.
+- **Resolution**: Causal attention during training, or masking: train bidirectional but mask the loss so each layer's velocity only uses information from previous layers.
 
-**What happens as model size → ∞?** If hidden state dimensionality increases, the velocity manifold becomes higher-dimensional and potentially easier to separate. But at extreme scale, any single-layer perturbation might be absorbed by the residual stream redundancy.
+### Paradox 5: The Transfer Paradox
+- **Statement**: "Fine-tune on AWQ to adapt the TT"
+- **Inversion**: Fine-tuning on AWQ changes weights to fit AWQ patterns. But AWQ patterns are close to BnB patterns (same model, different precision). If they are close, why does R² drop from 0.85→0.45? If they are far, fine-tuning on AWQ will destroy BnB performance.
+- **Resolution**: Neither fine-tuning nor static training works. Need *domain-invariant representations* from the start, or *hypernetwork* that takes quantization info as input.
 
-### Blind Spot Alert
-Paradoxical thinking can produce interesting insights but may overstate contradictions. The distribution shift paradox is addressable with online adaptation (fine-tune TT on steered generations).
+### Persistent Blind Spots (After All 10 Lenses)
 
----
-
-## Convergence Assessment
-
-### High-Confidence Findings (≥5 lenses agree)
-1. **Velocity learnability**: Confirmed by analogical (forward model), systems (feedback loop), trajectory (empirical improvement), metacognitive (measurement robustness), inspiration (calculus analogy) — **HIGH confidence (9/10)**
-2. **Layer selectivity is mandatory**: Confirmed by analogical (trim tabs), dialectical (thesis/antithesis), systems (leverage points), adversarial (death-layer exploitation), paradoxical (goldilocks zone) — **HIGH confidence (9/10)**
-3. **Capability threshold exists**: Confirmed by dialectical (antithesis), abductive (failure explanation), adversarial (attack surface), trajectory (phase evolution), paradoxical (self-reference) — **HIGH confidence (8/10)**
-
-### Contested Findings (≥3 lenses disagree)
-1. **Contrastive TT effectiveness**: Blending lens sees potential; abductive lens notes Math-1.5B failure; paradoxical lens warns about cancellation — **CONTESTED**
-2. **Mechanism of death layer (L9)**: Systems lens suggests balancing feedback; adversarial lens suggests vulnerability; metacognitive lens suggests head-level effects — **CONTESTED**
-3. **Steering generalizability to non-math tasks**: Analogical lens suggests yes (structure is general); dialectical notes SVAMP weak replication; trajectory lens notes untested — **CONTESTED**
-
-### Persistent Blind Spots
-1. **Head-level granularity** — all analysis is layer-wide, may miss finer structure
-2. **Per-token dynamics** — all analysis is accuracy-aggregated, may mask temporal patterns
-3. **α non-linearity** — discrete α sweeps may miss complex accuracy-α relationships
+| # | Blind Spot | Which Lenses Missed It | Why Persistent |
+|---|-----------|----------------------|----------------|
+| 1 | **End-to-end validation missing** | 1-6, 8-10 | Requires expensive downstream eval; easier to measure R² |
+| 2 | **Velocity manifold structure** | 1-10 | Assumes full-rank; PCA never run on targets |
+| 3 | **Layer importance heterogeneity** | 1-3, 5-6, 8-9 | Convenient to treat uniformly |
+| 4 | **Adversarial robustness** | 1-8, 10 | Not standard practice in velocity prediction |
+| 5 | **Noise ceiling** | 1-4, 6, 8-9 | Would be demoralizing to confirm; psychology of research |
+| 6 | **Goal alignment: velocity R² vs reasoning quality** | 1-10 | Entire field assumes proxy metrics suffice |

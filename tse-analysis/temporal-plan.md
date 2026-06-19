@@ -1,158 +1,181 @@
-# Resource-Budgeted Temporal Plan — RankAdaptation
+# Phase 9: Resource-Budgeted Temporal Phasing
+
+---
 
 ## Available Resources
 
-| Resource | Status | Notes |
-|----------|--------|-------|
-| GPU | RTX 4060 Ti 16GB VRAM | Can run 7B with 4-bit quantization |
-| Internal SSD | ~56GB free (/home) | For models + active data |
-| External HDD | ~100GB+ free | For trajectory storage |
-| CPU RAM | Unknown, ~16-32GB likely | Sufficient for 500 trajectories |
-| Existing TTs | 5 checkpoints (4 on SSD, 2 on HDD) | All trained and ready |
-| Existing trajectories | 7B (83 files, 35GB), Math-1.5B (37, 13GB), SmolLM2 (10, 6GB) | Sufficient for most experiments |
+| Resource | Estimate | Notes |
+|----------|----------|-------|
+| GPU compute | ~40-80 GPU-hours / week | Assuming 1 A100/H100 |
+| Storage | ~35 GB current + 50 GB available | 17GB per tensor, 2 tensors |
+| Developer time | ~20 hours / week | Single researcher |
+| Data generation | 7B model forward pass | ~2 seconds per trajectory on 1 GPU |
+| Budget | Low | Research context; no large funding assumed |
 
-## Phase A: Immediate — Diagnostic (≤2 hours, no new infrastructure)
+---
 
-### A1: Death-Layer Sign Flip on L9
-- **Cost**: ~20 min (30 problems, 4-bit 7B, single layer per configuration)
-- **Experiment**: `run_per_layer_sweep.py` with `--alpha -0.1 --layers 9` (modify sign)
-- **Success**: L9(-α) accuracy > L9(+α) accuracy — confirms L9 is an inverted trim-tab
-- **Success+**: L9(-α) accuracy ≥ baseline — L9 is reclaimable
-- **Failure**: L9(-α) accuracy still 0% — L9 is genuinely harmful regardless of direction
-- **Go/No-Go**: If success, expand to negative α sweep across all death layers (L7, L9, L15+)
+## Phase A: Diagnostic (Immediate — ≤2 hours)
 
-### A2: Remove First-Step Gate
-- **Cost**: ~15 min code change + ~30 min evaluation
-- **Experiment**: Modify all steering scripts to steer at t=0 (remove `first_step` guard)
-- **Success**: Accuracy at least matches steering without first-step, ideally exceeds it
-- **Failure**: Accuracy degrades significantly — first-step steering hurts
-- **Go/No-Go**: If success, adopt as new default. If failure, investigate using prompt-trained TT for t=0.
+**Cost**: 2 GPU-hours, 1 hour developer time
 
-### A3: Contrastive Similarity Analysis (H0-3 from Phase 8)
-- **Cost**: ~10 min (compute cosine similarity between v_c and v_i for 50 examples)
-- **Experiment**: Modify `run_contrastive_eval.py` to compute and print cos(v_c, v_i) per example
-- **Success**: cos(v_c, v_i) < 0.5 — TTs learn meaningfully different dynamics
-- **Failure**: cos(v_c, v_i) > 0.9 — TTs are nearly identical, contrastive direction ≈ 0
-- **Go/No-Go**: If success, proceed with contrastive evaluation. If failure, contrastive TT approach is likely invalid.
+### Experiments (all run in parallel)
 
-### A4: λ Interpolation Steering (CF-6 from Phase 7)
-- **Cost**: ~10 min code change + ~30 min evaluation
-- **Experiment**: `v_steer = λ·v_c + (1-λ)·v_i` for λ ∈ {0, 0.25, 0.5, 0.75, 1.0} at L8
-- **Success**: Accuracy peaks at λ > 0.5 — confirms normative direction helps
-- **Failure**: Flat accuracy across λ — contrastive signal is noise
-- **Go/No-Go**: If λ=1.0 gives best results, steer directly with v_c.
+| # | Experiment | Cost | Go/No-Go Criterion |
+|---|-----------|------|-------------------|
+| A1 | **Noise ceiling measurement**: Run Qwen twice on same 100 inputs; compute velocity MSE between runs | 1 GPU-hour | If noise MSE / total MSE > 0.50 → noise ceiling confirmed (stop, change approach). If < 0.30 → headroom exists (proceed). |
+| A2 | **Per-layer normalization on 10K subset**: Re-normalize, train TT for 1 epoch | 1 GPU-hour | If R² improves ≥0.01 (from baseline epoch 1) → normalization is a lever. If no improvement → focus elsewhere. |
+| A3 | **Synthetic data validation**: 3-layer toy model, known velocity function | 0.5 GPU-hour | If R² > 0.95 → architecture can learn velocities. If < 0.80 → fundamental architecture problem. |
 
-### Total Phase A Cost: ~2 hours compute, 0 new infrastructure
+### Success Criterion
+All three experiments complete. At least 2 of 3 show positive signal.
 
-## Phase B: Short-term — Targeted (≤1 day, builds on Phase A)
+### Failure Criterion
+- A1 shows noise ceiling reached → **Terminate**: velocity prediction improvement is limited; pivot to usage
+- A3 shows architecture inadequacy → **Terminate**: rethink TT architecture entirely
 
-### B1: Statistical Validation (H0-1 from Phase 8)
-- **Requires**: Phase A decisions on best steering configuration
-- **Cost**: ~2 hours (500 problems, 3-5 layer configurations)
-- **Experiment**: Run L8, L2, L9 (+ best A1 result) with N=500 problems
-- **Success**: +20pp L8 confirmed at N=500 (±4.4pp CI)
-- **Failure**: Effect shrinks to <10pp at N=500 — original result was statistical fluctuation
+### Go/No-Go Decision
+- All 3 positive → Full commitment to Phase B
+- 2/3 positive → Proceed with Phase B but limit scope
+- 1/3 or fewer positive → Return to research; do NOT proceed to Phase B
 
-### B2: Norm-Growth Baseline (H0-2 from Phase 8)
-- **Requires**: None
-- **Cost**: ~30 min
-- **Experiment**: Compute null baseline velocity = norm-ratio-based, compare R² to TT
-- **Success**: TT significantly outperforms norm baseline — TT learns meaningful dynamics
-- **Failure**: TT ≈ norm baseline — TT is learning trivial norm growth
+---
 
-### B3: Hybrid Steering (v_std + β·(v_c - v_i))
-- **Requires**: A4 results
-- **Cost**: ~1 hour
-- **Experiment**: Sweep β ∈ {0, 0.1, 0.3, 0.5, 1.0} with best α from per-layer sweep
-- **Success**: β > 0 gives better accuracy than β = 0 (v_std alone)
-- **Failure**: β = 0 gives best result — contrastive signal doesn't add to standard
+## Phase B: Short-Term Targeted (≤1 day)
 
-### B4: GDN Recurrent State Steering (RECOMB-5)
-- **Requires**: Working GDN state modification code
-- **Cost**: ~2 hours (implement + test on 5 problems + scale to 50)
-- **Experiment**: Modify Qwen3.5-2B's GDN recurrent states instead of K/V cache
-- **Success**: Any accuracy improvement on Qwen3.5-2B (which was 0% with K/V approach)
-- **Failure**: No improvement — GDN recurrent states not steerable
+**Cost**: 8 GPU-hours, 2 days developer time
 
-### Total Phase B Cost: ~5-6 hours compute
+### Prerequisites: Phase A success
 
-## Phase C: Medium-term — Architectural (≤1 week, systemic changes)
+### Experiments
 
-### C1: Per-Head Steering (EM-1)
-- **Requires**: Understanding of L8 per-head effects
-- **Cost**: ~2 days (code + analysis)
-- **Experiment**: Within L8, steer each attention head independently (28 heads)
-- **Success**: Identify 3-5 "trim-tab heads" that drive the L8 effect; steer them at 2× α and others at 0
+| # | Experiment | Cost | Expected R² Gain |
+|---|-----------|------|-----------------|
+| B1 | **Per-layer normalization full**: Re-normalize all 90K trajectories; train full TT | 6 GPU-hours | +0.02-0.05 |
+| B2 | **Decomposed loss**: Implement cosine + Huber loss. Train with α sweep {0.1, 0.3, 0.5, 0.7, 0.9} | 4 GPU-hours | +0.03-0.06 |
+| B3 | **Layer-index embedding**: Add learnable layer embedding; train | 2 GPU-hours | +0.01-0.02 |
+| B4 | **PCA diagnostics**: Compute PCA on velocity targets; measure intrinsic dimensionality | 1 GPU-hour | Information only |
 
-### C2: Adaptive α(t) via Bayesian Optimization
-- **Requires**: B1 results for reliable accuracy measurement
-- **Cost**: ~3 days (Bayesian optimization setup)
-- **Experiment**: Optimize α(t) as a function of token position (e.g., Gaussian process with position as input)
-- **Success**: α(t) schedule that outperforms best constant α
+### Success Criterion
+Combined R² improvement ≥ 0.05 (to R² ≥ 0.90). OR directional cos improvement ≥ 0.05.
 
-### C3: Synthetic Toy Transformer Validation (Phase 8)
-- **Requires**: None (purely synthetic)
-- **Cost**: ~4 hours
-- **Experiment**: Build two-layer synthetic transformer, generate trajectories with known correct velocity, verify pipeline can recover it
-- **Success**: TT achieves R² > 0.95 on synthetic data; steering with ground-truth velocity improves accuracy
-- **Failure**: Pipeline fails on known ground truth → fundamental bug in steering mechanism
+### Failure Criterion
+Total R² improvement < 0.02. This would indicate the R² ceiling is real and close.
 
-### Total Phase C Cost: ~5 days, significant code development
+### Contingency
+If B1 shows no improvement but Phase A's A2 showed improvement → check for implementation error (data leakage, incorrect normalization).
 
-## Phase D: Long-term — Fundamental (research program)
+---
 
-### D1: Cross-Task Polarity Map (EM-3)
-- **Requires**: C1 completion, capability to run multiple benchmarks
-- **Cost**: ~2 weeks
-- **Experiment**: Run per-layer sweeps on ARC, BBH, MMLU (3-5 tasks × 28 layers × 100 problems)
-- **Goal**: Compute polarity correlation matrix across tasks. Are L8 trim-tab effects consistent?
+## Phase C: Medium-Term Architectural (≤1 week)
 
-### D2: Self-Supervised Contrastive Steering (EM-4)
-- **Requires**: Understanding of trajectory clustering (from C3 synthetic analysis)
-- **Cost**: ~1 month
-- **Experiment**: Cluster trajectories by convergence property without labels, train TT on clusters
-- **Goal**: Label-free normative steering
+**Cost**: 40 GPU-hours, 5 days developer time
 
-### D3: RL-Optimized Steering Policy
-- **Requires**: B1 (reliable metric), B3 (hybrid steering)
-- **Cost**: ~2 weeks
-- **Experiment**: Train RL policy (PPO/REINFORCE) that selects α per (layer, token) to maximize GSM8K accuracy
-- **Goal**: Maximize theoretical upper bound on steering improvement
+### Prerequisites: Phase B success (≥0.03 R² improvement)
 
-### Total Phase D Cost: ~2 months
+### Experiments (in dependency order)
 
-## Decision Tree
+| Step | Experiment | Prerequisites | Cost | Expected Gain |
+|------|-----------|---------------|------|---------------|
+| C1 | **Multi-format data generation**: BnB + AWQ + GPTQ trajectories (30K each) | None | 60 GPU-hours data gen | Foundation for C2-C5 |
+| C2 | **Multi-format mixed training**: Train TT on combined 90K trajectories | C1 | 12 GPU-hours | AWQ R² → 0.70+, BnB R² preserved |
+| C3 | **PCA-compressed TT**: PCA→256, train TT in compressed space | B4 (PCA done) | 6 GPU-hours | +0.02-0.08 R², 14× output reduction |
+| C4 | **Domain-contrastive loss**: Add gradient reversal layer for quantization invariance | C1, B2 | 8 GPU-hours | AWQ R² → 0.75+ |
+| C5 | **Correction network**: MLP mapping AWQ→BnB hidden states | C1 | 4 GPU-hours | AWQ→BnB bridge, TT stays frozen |
+
+### Success Criterion
+- AWQ transfer R² > 0.70 (from current 0.45)
+- BnB R² > 0.88 (improvement from current 0.848)
+- CPT Qwen variant R² > 0.65 (generalization)
+
+### Failure Criterion
+- AWQ R² remains < 0.60 post all interventions
+- Multi-format training degrades BnB R² below 0.80
+
+### Decision Tree
+```
+Phase B success → Phase C start
+    ├── Multi-format training (C2) works → Continue
+    │   ├── PCA compression (C3) works → Full deployment
+    │   │   └── AWQ transfer (C4, C5) works → Phase D
+    │   └── PCA doesn't help → Skip to C4/C5
+    └── Multi-format degrades performance → Roll back to single-format
+        └── Focus on normalization + loss only (B1+B2)
+```
+
+---
+
+## Phase D: Long-Term Fundamental (≤1 month)
+
+**Cost**: 200 GPU-hours, 15 days developer time
+
+### Prerequisites: Phase C success
+
+### Research Directions (parallel, choose 1-2)
+
+| Direction | Approach | Cost | Risk | Potential |
+|-----------|----------|------|------|-----------|
+| D1 | **End-to-end RL training**: Differentiate through KV-cache steering; train TT with PPO on GSM8K accuracy | 50 GPU-hours | HIGH (RL stability) | VERY HIGH (bypasses proxy metric) |
+| D2 | **Online TT training**: Qwen forward pass during TT training; no stored trajectories | 100 GPU-hours | HIGH (engineering) | VERY HIGH (unlimited data, eliminates I/O) |
+| D3 | **Uncertainty-aware TT**: Predict velocity distribution; abstain from steering when uncertain | 30 GPU-hours | MEDIUM | HIGH (safer steering) |
+| D4 | **Mamba/SSM TT**: Replace transformer with Mamba for linear-time inference | 40 GPU-hours | MEDIUM | HIGH (efficiency + state tracking) |
+| D5 | **Layer-group experts**: 3 specialized sub-TT for early/mid/late layers with soft routing | 40 GPU-hours | MEDIUM | HIGH (specialization) |
+
+### Recommended Prioritization
 
 ```
-Phase A Start
-├── A1 (Death sign flip) → success → B1 includes negative-α layers
-│                       → failure → continue with positive α only
-├── A2 (First-step) → success → adopt as default
-│                  → failure → keep first-step skip, investigate separately
-├── A3 (Contrastive similarity) → cos < 0.5 → proceed with contrastive
-│                               → cos > 0.9 → ABANDON contrastive approach
-└── A4 (λ interpolation) → λ peak > 0.5 → contrastive viable
-                         → flat → contrastive may be noise
-
-Phase B (if Phase A mostly successful)
-├── B1 (N=500 validation) → +20pp confirmed → high confidence in steering
-│                         → effect shrinks → need more robust approach
-├── B2 (Norm baseline) → TT better → dynamics are meaningful
-│                      → TT ≈ norm → need new TT architecture
-├── B3 (Hybrid steering) → β > 0 helps → adopt hybrid steering
-│                        → β=0 best → use standard TT only
-└── B4 (GDN steering) → works → unlock Qwen3.5 hybrid models
-                      → fails → accept hybrid architecture limitation
-
-Phase C (if Phase B shows robust effects)
-├── C1 (Per-head) → identify trim-tab heads → precision steering
-├── C2 (Adaptive α) → α(t) beats constant → temporal optimization
-└── C3 (Synthetic validation) → PASS → pipeline validated → confidence high
-                              → FAIL → STOP AND INVESTIGATE FUNDAMENTAL ISSUE
-
-Phase D (if Phase C successful)
-├── D1 (Cross-task) → polarity consistent → generalizable mechanism
-│                   → polarity task-specific → task-adaptive steering needed
-├── D2 (Self-supervised) → works → label-free steering, major advance
-└── D3 (RL policy) → beats manual α → automated steering optimization
+Rank by expected value per GPU-hour:
+1. D1 (End-to-end RL) — 10× impact if it works, even if risky
+2. D3 (Uncertainty-aware) — Safest, most practical improvement
+3. D5 (Layer-group experts) — Most likely to work reliably
+4. D4 (Mamba/SSM) — Research-heavy
+5. D2 (Online training) — Engineering-heavy, defer if other directions succeed
 ```
+
+### Phase D Success Criterion
+- End-to-end validation: TT→Steering→GSM8K accuracy improvement > 5% (absolute)
+- Or: Uncertainty-aware TT enables safe deployment in production
+
+### Phase D Failure Criterion
+- No direction yields >2% GSM8K improvement → Reconsider velocity prediction as approach
+
+---
+
+## Decision Tree Diagram
+
+```
+START
+  │
+  ▼
+Phase A: Diagnostic (2 hours)
+  ├── [Noise ceiling reached] → RECONSIDER approach (stop)
+  ├── [Architecture inadequate] → REDESIGN TT (return to research)
+  └── [All positive] → ▼
+                        │
+                   Phase B: Short-term (1 day)
+                    ├── [R² gain < 0.02] → ACCEPT ceiling (stop improvements)
+                    │                        Pursue deployment with current R²
+                    └── [R² gain ≥ 0.03] → ▼
+                                            │
+                                       Phase C: Medium-term (1 week)
+                                        ├── [AWQ R² < 0.60] → ROLLBACK to single-format
+                                        │                      Focus on B1+B2 alone
+                                        └── [AWQ R² ≥ 0.70] → ▼
+                                                              │
+                                                          Phase D: Long-term (1 month)
+                                                           ├── D1: End-to-end RL
+                                                           ├── D3: Uncertainty-aware
+                                                           └── D5: Layer-group experts
+```
+
+## Budget Summary
+
+| Phase | GPU-hours | Developer Days | Cumulative Cost |
+|-------|-----------|----------------|-----------------|
+| A | 2 | 0.25 | 2 GPU-hours |
+| B | 13 | 2 | 15 GPU-hours |
+| C | 90 | 5 | 105 GPU-hours |
+| D | 200 | 15 | 305 GPU-hours |
+
+**Total budget**: ~305 GPU-hours + 22 developer days = ~2.5 months for complete program.
+
+**Minimum viable improvement (Phase A+B only)**: 15 GPU-hours, ~2 days → Expected R² 0.87-0.90.

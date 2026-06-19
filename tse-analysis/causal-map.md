@@ -1,113 +1,134 @@
-# Causal Map — RankAdaptation
+# Phase 7: Causal Mapping & Counterfactual Analysis
+
+---
 
 ## Causal DAG
 
+### Node Definitions
+
+| Node | Label | Description | Measurable? |
+|------|-------|-------------|-------------|
+| N1 | Data_Quality | Diversity + quantity of training trajectories | Yes (coverage metrics) |
+| N2 | Norm_Strategy | Global vs per-layer normalization | Yes (binary choice) |
+| N3 | Input_Hidden_States | Preprocessed hidden state tensor [B, L, 3584] | Yes |
+| N4 | TT_Forward | Transformer forward pass | Yes |
+| N5 | Predicted_Velocity | Output of TT [B, L, 3584] | Yes |
+| N6 | Velocity_Error | MSE/Cosine loss | Yes |
+| N7 | Gradient_Update | Weight adjustment via AdamW | Yes (traceable) |
+| N8 | Per_Layer_Gradient_Magnitude | Gradient norm per output dimension | Yes |
+| N9 | Training_Stability | Loss variance, absence of NaN/CUDA crashes | Yes |
+| N10 | Model_Capacity | Effective capacity per output dimension | Yes (params/dim) |
+| N11 | Inference_Velocity | TT applied to new data | Yes |
+| N12 | Steering_Accuracy | Directional alignment of velocity | Yes (cosine) |
+| N13 | Reasoning_Accuracy | Downstream task performance | Yes (GSM8K score) |
+| N14 | Distribution_Shift | MMD/Wasserstein between BnB and AWQ | Yes |
+| N15 | Catastrophic_Forgetting | AWQ performance - BnB performance after fine-tune | Yes |
+
+### Causal Edges
+
 ```
-Training Phase:                               Generation Phase:
-                                        
-TT_training_data ──→ TT(Trained) ──→ v = TT(h_seq) ──→ h' = h + α·v
-     ↑                                       ↑              │
-     │                                       │              │
-Correct/Incorrect Labels                     │              ↓
-     ↑                                       │         K' = W_k(h'), V' = W_v(h')
-     │                                       │              │
-     └── Contrastive training ───────────────┘              │
-                                                            ↓
-                                                KV_cache[t] ← modified
-                                                            │
-                                                     ┌──────┘
-                                                     ↓
-                                                Attention at step t+1
-                                                     │
-                                                     ↓
-                                                Next token: T(t+1)
-                                                     │
-                                        ┌────────────┼────────────┐
-                                        ↓            ↓            ↓
-                                   If correct    If incorrect   Continue
-                                   manifold      manifold       generation
-                                        │            │
-                                        ↓            ↓
-                                   Higher P(correct)  Lower P(correct)
-                                        │            │
-                                        ↓            ↓
-                                   GSM8K accuracy   GSM8K accuracy
-                                   ↑                ↓
-                                   ←── Reinforcing ──→ Self-limiting
-                                       loop            loop
+N1 (Data_Quality) ──positive──→ N3 (Input Hidden States)
+N2 (Norm_Strategy) ──modulates──→ N3
+N3 ──feeds──→ N4 (TT_Forward)
+N4 ──produces──→ N5 (Predicted_Velocity)
+N5 ──compared_to──→ N6 (Velocity_Error)
+N6 ──drives──→ N7 (Gradient_Update)
+N7 ──updates──→ N4 (feedback loop)
+N8 (Per_Layer_Gradient) ──indicates──→ N6 (spatial distribution of error)
+N6 ──negatively──→ N9 (Training_Stability) [if error spikes]
+N2 ──determines──→ N8 [through per-layer signal preservation]
+N10 (Model_Capacity) ──modulates──→ N6 [higher capacity → lower error]
+N11 (Inference_Velocity) ──depends_on──→ N5 (same TT weights)
+N11 ──determines──→ N12 (Steering_Accuracy)
+N12 ──causes──→ N13 (Reasoning_Accuracy) [assumed, not validated]
+N14 (Distribution_Shift) ──causes──→ N6 [shifted → higher error]
+N14 ──causes──→ N15 (Catastrophic_Forgetting) [if fine-tuned]
+N9 ──modulates──→ N6 [stable → lower error]
 ```
 
-### Edges
+### Key Causal Paths
 
-| Edge | Type | Delay | Confidence |
-|------|------|-------|------------|
-| TT_training_data → TT | Training | Hours (full training) | 10/10 |
-| TT → v | Inference | ~2ms (TT forward) | 10/10 |
-| h_seq + v → h' | Additive | ~0.001ms (vector add) | 10/10 |
-| h' → K', V' | Projection | ~0.01ms (linear layer) | 10/10 |
-| K', V' → KV_cache[t] | Assignment | ~0.001ms (tensor copy) | 10/10 |
-| KV_cache → Attention | Retrieval | ~0.01ms (attention compute) | 10/10 |
-| Attention → Next token | Decoding | ~5ms (full layer stack) | 10/10 |
-| Next token → Manifold | State transition | ~0ms (deterministic) | 9/10 |
-| Correct manifold → Accuracy | Evaluation | Generation end | 10/10 |
-| Contrastive training → v | Directional | Training hours | 8/10 |
-| Capability threshold → Steering_effectiveness | Conditioning | 0 (static property) | 8/10 |
+| Path | Type | Length | Criticality |
+|------|------|--------|-------------|
+| N2→N3→N4→N5→N6→N7→N4 | Causal feedback loop (reinforcing) | 7 | HIGH — normalization choice propagates through entire training loop |
+| N14→N6→N7→N4→N6(N14→N5) | Causal interference | 6 | HIGH — distribution shift corrupts the entire chain |
+| N2→N8→N6 | Modulation | 3 | MEDIUM — norm determines gradient balance |
+| N11→N12→N13 | Forward inference | 3 | CRITICAL — but N12→N13 is UNVALIDATED (missing evidence) |
+
+---
 
 ## Branching Points (out-degree ≥ 2)
 
-| Node | Out-Degree | Description |
-|------|-----------|-------------|
-| **TT** | 4 | Determines v vector, which affects all downstream: h', K', V', KV_cache, attention |
-| **h'** | 3 | Modified hidden state produces new K, V, and residual stream for next layer |
-| **KV_cache[t]** | 3 | Affects all future attention operations that attend to position t |
-| **Next token T(t+1)** | 2+ (per step) | Each token is a branching point — determines next h_seq and continues/terminates generation |
+| Node | Out-degree | Branches | Leverage |
+|------|-----------|----------|----------|
+| **N2 (Norm_Strategy)** | 4 | →N3 (input quality), →N8 (gradient balance), →N6 (error), →N9 (stability) | HIGHEST |
+| **N1 (Data_Quality)** | 3 | →N3 (input), →N14 (distribution), →N6 (error via diversity) | HIGH |
+| **N6 (Velocity_Error)** | 3 | →N7 (gradients), →N9 (stability), →N12 (steering via N5) | HIGH |
+| **N10 (Model_Capacity)** | 2 | →N6 (error via capacity), →N12 (steering quality) | MEDIUM |
+
+---
 
 ## Counterfactuals
 
-### CF-1: "What if α is negative at L9 (death layer)?"
-- **Current**: α = 0.1 at L9 → 0% accuracy (-23pp vs baseline)
-- **Counterfactual**: α = -0.1 at L9
-- **Predicted Outcome**: If L9 is a trim-tab with inverted polarity, accuracy might increase to match L8 (+20pp). If L9 is genuinely harmful, accuracy remains at 0%.
-- **Testability**: IMMEDIATE — change sign of α in `run_per_layer_sweep.py` line 40. Runs in ~20 min for 30 problems.
+### CF-1: "What if normalization were per-layer instead of global?"
 
-### CF-2: "What if the first-step skip is removed?"
-- **Current**: `if not first_step:` prevents steering at t=0
-- **Counterfactual**: Remove skip, steer at first generation step
-- **Predicted Outcome**: Either (a) larger accuracy improvement (+25-30pp) because first token has highest leverage, or (b) worse accuracy because prompt hidden states have different distribution and TT predictions are less reliable (R²=0.62 for prompt vs 0.85 for generation).
-- **Testability**: IMMEDIATE — remove the `first_step = True` guard and compute velocity from first forward pass's hidden states.
+| Attribute | Value |
+|-----------|-------|
+| **Intervention** | Replace global mean(dim=(0,1)) with per-layer (dim=(1,)) |
+| **Scope** | All 90K training trajectories + 500 validation |
+| **Predicted Outcome** | R² increases from 0.848 to 0.87-0.90. AWQ transfer improves from 0.45 to 0.55-0.65. |
+| **Mechanism** | Per-layer signal preserved → input proj receives richer features → transformer learns layer-specific velocity dynamics |
+| **Testability** | Train with per-layer norm on 10K subset. Compare R² after 1 epoch. |
 
-### CF-3: "What if we steer at t=0 using prompt-trained TT?"
-- **Current**: Generation-trained TT used at all steps
-- **Counterfactual**: Use prompt-trained TT specifically for first step (where hidden states are more prompt-like)
-- **Predicted Outcome**: Might combine best of both — prompt TT has reasonable R² on prompt-like states, generation-trained TT has better R² on subsequent steps.
-- **Testability**: SHORT-TERM — load both TTs, select which to use based on step index.
+### CF-2: "What if loss decomposed into direction + magnitude?"
 
-### CF-4: "What if the TT is fine-tuned on steered-generation data?"
-- **Current**: TT trained once on unsteered generation data, used frozen
-- **Counterfactual**: TT fine-tuned on 1-2 batches of steered generation data
-- **Predicted Outcome**: TT learns to predict velocities in the distribution it will actually encounter during steering, reducing distribution mismatch and improving steering efficacy.
-- **Testability**: SHORT-TERM — collect steered trajectories, fine-tune TT with low learning rate.
+| Attribute | Value |
+|-----------|-------|
+| **Intervention** | L_total = α·L_cosine(v_pred, v_true) + (1-α)·L_huber(||v_pred||, ||v_true||) |
+| **Scope** | Training loop only; no data changes |
+| **Predicted Outcome** | Cosine similarity increases from 0.770 to 0.82-0.85. R² stays similar or slightly lower. Downstream steering quality improves. |
+| **Mechanism** | Directional loss aligns velocity vectors; magnitude loss allows correct scale without dominating gradient |
+| **Testability** | Train with α=0.5 on current data. Measure Cos and R² separately. |
 
-### CF-5: "What if we intervene on the residual stream instead of KV cache?"
-- **Current**: h' = h + α·v, then K' = W_k(h'), V' = W_v(h')
-- **Counterfactual**: h' = h + α·v, then residual_stream_output = residual_stream + h' (direct modification of the main residual stream, bypassing K/V projections)
-- **Predicted Outcome**: More direct effect on downstream computation (residual stream carries information through all layers). Less architectural constraint (works on any architecture).
-- **Testability**: MEDIUM-TERM — requires modifying the model's forward pass directly, not just the KV cache.
+### CF-3: "What if training data included 3 quantization formats?"
 
-### CF-6: "What if we interpolate between v_c and v_i instead of subtracting?"
-- **Current**: v_contrastive = v_c - v_i (subtraction)
-- **Counterfactual**: v_interp = λ·v_c + (1-λ)·v_i (interpolation with λ ∈ [0,1])
-- **Predicted Outcome**: At λ=1, steer toward correct manifold (like v_c alone). At λ=0, steer away from correct (v_i). At λ=0.5, neutral (v_std). The interpolation allows smooth control over steering strength.
-- **Testability**: IMMEDIATE — modify `run_contrastive_eval.py` line 111 to compute `v_steer = λ * v_c + (1-λ) * v_i` instead of `v_c - v_i`.
+| Attribute | Value |
+|-----------|-------|
+| **Intervention** | Generate trajectories from BnB + AWQ + GPTQ Qwen. Mix 1:1:1. |
+| **Scope** | Data generation (1-2 days), no model changes |
+| **Predicted Outcome** | AWQ R² > 0.70, BnB R² > 0.80. ChatGPT R² > 0.70. Quantization-robust representation emerges. |
+| **Mechanism** | TT learns to ignore quantization artifacts and focus on shared velocity structure |
+| **Testability** | Generate 10K AWQ trajectories. Fine-tune on mixed set. Test all three. |
 
-## Intervention Points
+### CF-4: "What if we computed the noise ceiling first?"
 
-| Point | Feasibility | Expected Leverage | Risk |
-|-------|-------------|-------------------|------|
-| α sign at L9 | IMMEDIATE | HIGH (could convert death→trim) | LOW (no new code) |
-| First-step gate removal | IMMEDIATE | HIGH (max leverage point) | MED (unreliable prompt TT) |
-| λ interpolation (contrastive) | IMMEDIATE | MED (smoother control) | LOW |
-| Steered-data TT fine-tune | SHORT | HIGH (closes loop) | LOW |
-| Residual stream steering | MED | HIGH (architecture-agnostic) | HIGH (modifies model internals) |
-| Per-head steering | MED | VERY HIGH (precision) | MED (complex implementation) |
-| Self-supervised contrastive | LONG | VERY HIGH (label-free) | HIGH (unproven approach) |
+| Attribute | Value |
+|-----------|-------|
+| **Intervention** | Run Qwen twice on same input with different seeds (deterministic vs non-deterministic). Compute velocity variance across runs. |
+| **Scope** | 1000 trajectories, 2 runs each |
+| **Predicted Outcome** | If noise ceiling > 0.15 MSE → R²=0.85 IS the ceiling and architecture changes won't help. If noise ceiling < 0.10 MSE → normalization/loss changes can push past 0.85. |
+| **Mechanism** | Noise ceiling = irreducible prediction error from stochasticity alone |
+| **Testability** | Direct measurement: run 2 forward passes, compute velocity variance |
+
+### CF-5: "What if we added a correction network for AWQ adaptation?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Intervention** | Train a small MLP (3-layer, 5M params) that maps AWQ hidden states → BnB-like hidden states. TT stays frozen on BnB. |
+| **Scope** | Additional network before TT; no TT changes |
+| **Predicted Outcome** | AWQ R² > 0.70 with zero BnB forgetting. |
+| **Mechanism** | Correction network absorbs distribution shift; TT sees normalized features |
+| **Testability** | Train correction network on paired BnB/AWQ trajectories. R² measured after correction. |
+
+---
+
+## Intervention Points (feasible external modulation)
+
+| Point | Node | Feasibility | Cost | Expected Impact |
+|-------|------|-------------|------|-----------------|
+| IP-1 | N2 (Norm_Strategy) | HIGH | 1 hour | HIGH — changes entire cascade |
+| IP-2 | N6 (Velocity_Error / Loss) | HIGH | 3 hours | HIGH — gradient signal quality |
+| IP-3 | N1 (Data_Quality) | MEDIUM | 2 days | HIGH — emergent quantization robustness |
+| IP-4 | N10 (Model_Capacity via PCA) | MEDIUM | 1 day | HIGH — best capacity utilization |
+| IP-5 | N14 (Distribution_Shift via correction net) | MEDIUM | 2 days | MEDIUM — solves AWQ without TT changes |
+| IP-6 | N9 (Training_Stability) | HIGH | 1 day | LOW — environmental fix |

@@ -7,15 +7,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+# Enable TF32 for ~2x matmul speedup
+torch.set_float32_matmul_precision('high')
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.adapters.trajectory_transformer import TrajectoryTransformer
 
 DEVICE = "cuda"
-DATA_DIR = "/run/media/filip/C27C20AB7C209C63/project_data/qwen25_7b_gen_trajs"
-RMMAP_DIR = "/run/media/filip/C27C20AB7C209C63/trajs_7b_rmmap"
-D_INPUT = 3584; N_LAYERS = 28; BS = 128; LR = 3e-4; N_EPOCHS = 50
-CHUNK_SIZE = 2000
-GPU_CHUNK = 2000
+DATA_DIR = "/run/media/filip/C27C20AB7C209C63/trajs_7B_AWQ/Batches"
+RMMAP_DIR = "/run/media/filip/C27C20AB7C209C63/trajs_7b_awq_rmmap"
+BNB_VAL_DIR = "/run/media/filip/C27C20AB7C209C63/project_data/qwen25_7b_gen_trajs"
+D_INPUT = 3584; N_LAYERS = 28; BS = 64; LR = 1e-4; N_EPOCHS = 30
+CHUNK_SIZE = 4000
+GPU_CHUNK = 4200
 
 
 def compute_metrics(v_pred, v_target):
@@ -71,18 +77,12 @@ def main():
     parser.add_argument("--bs", type=int, default=BS)
     parser.add_argument("--d-model", type=int, default=768)
     parser.add_argument("--d-ff-ratio", type=int, default=4)
-    parser.add_argument("--n-layers", type=int, default=6)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--resume", type=str, default=None)
-    parser.add_argument("--output", type=str, default="best_gen_tt_7b_new.pt")
-    parser.add_argument("--causal", action="store_true")
-    parser.add_argument("--cos-lambda", type=float, default=0.0)
-    parser.add_argument("--loss", type=str, default="mse", choices=["mse", "decomposed"])
-    parser.add_argument("--norm", type=str, default="global", choices=["global", "per-layer"])
     args = parser.parse_args()
 
-    files = sorted(glob.glob(os.path.join(DATA_DIR, "gen_trajs_7b_batch_*.pt")))
+    files = sorted(glob.glob(os.path.join(DATA_DIR, "batch_*.pt")))
     print(f"Total batch files: {len(files)}", flush=True)
 
     if args.rebuild or not os.path.exists(f"{RMMAP_DIR}/meta.json"):
@@ -103,22 +103,26 @@ def main():
     val_h = torch.from_numpy(val_h_np[:500].copy()).float()
     val_v = torch.from_numpy(val_v_np[:500].copy()).float()
 
+    # Load BnB validation (one batch file) for cross-eval tracking
+    bnb_val_file = sorted(glob.glob(os.path.join(BNB_VAL_DIR, "gen_trajs_7b_batch_*.pt")))[0]
+    bnb_val_data = torch.load(bnb_val_file, map_location="cpu")
+    bnb_val_h = bnb_val_data["hidden_seqs"].float()[:500]
+    bnb_val_v = bnb_val_data["velocity_targets"].float()[:500]
+    # BnB normalization stats (computed on BnB val set, matching original pipeline)
+    bnb_v_mean = bnb_val_v.mean(dim=(0, 1), keepdim=True)
+    bnb_v_std = bnb_val_v.std(dim=(0, 1), keepdim=True) + 1e-8
+    bnb_v_mean_gpu = bnb_v_mean.to(DEVICE); bnb_v_std_gpu = bnb_v_std.to(DEVICE)
+    print(f"BnB val: {bnb_val_h.shape}, AWQ val: {val_h.shape}", flush=True)
+
     print("Computing per-layer stats...", flush=True)
     stat_v = torch.from_numpy(v_mmap[:10000].copy()).float()
-    if args.norm == "global":
-        v_mean = stat_v.mean(dim=(0, 1), keepdim=True)
-        v_std = stat_v.std(dim=(0, 1), keepdim=True) + 1e-8
-        layer_w = torch.ones(N_LAYERS, device=DEVICE) / N_LAYERS
-    else:
-        v_mean = stat_v.mean(dim=0, keepdim=True)
-        v_std = stat_v.std(dim=0, keepdim=True) + 1e-8
-        layer_var = stat_v.var(dim=(0, 2))
-        layer_w = layer_var / layer_var.sum()
-        layer_w = layer_w.to(DEVICE)
+    v_mean = stat_v.mean(dim=(0, 1), keepdim=True)
+    v_std = stat_v.std(dim=(0, 1), keepdim=True) + 1e-8
     v_mean_gpu = v_mean.to(DEVICE); v_std_gpu = v_std.to(DEVICE)
     val_v_norm = (val_v - v_mean) / v_std
+    layer_w = torch.ones(N_LAYERS, device=DEVICE) / N_LAYERS
 
-    tt = TrajectoryTransformer(d_model=args.d_model, n_layers=args.n_layers, n_heads=8,
+    tt = TrajectoryTransformer(d_model=args.d_model, n_layers=6, n_heads=8,
                                 d_ff=args.d_model * args.d_ff_ratio,
                                 n_positions=N_LAYERS, d_input=D_INPUT).to(DEVICE)
     n_params = sum(p.numel() for p in tt.parameters())
@@ -129,16 +133,11 @@ def main():
         tt.load_state_dict(sd)
         print(f"Resumed from {args.resume}", flush=True)
 
-    try:
-        tt = torch.compile(tt, mode="reduce-overhead", disable_cudagraphs=True)
-        print(f"  torch.compile enabled", flush=True)
-    except Exception as e:
-        print(f"  torch.compile failed: {e}", flush=True)
-
     opt = torch.optim.AdamW(tt.parameters(), lr=args.lr, weight_decay=1e-4)
     best_r2 = -float("inf"); t0 = time.time()
     val_h_gpu = val_h.to(DEVICE); val_v_gpu = val_v.to(DEVICE)
     val_v_norm_gpu = val_v_norm.to(DEVICE)
+    bnb_val_h_gpu = bnb_val_h.to(DEVICE); bnb_val_v_gpu = bnb_val_v.to(DEVICE)
 
     # VRAM double-buffer: pre-allocate GPU buffers for sliding window
     gpu_buf = [
@@ -191,19 +190,7 @@ def main():
                 hb = gpu_buf[active][bi:be].float()
                 vb = gpu_buf_v[active][bi:be].float()
                 vn = (vb - v_mean_gpu) / v_std_gpu
-                if args.loss == "decomposed":
-                    pred = tt(hb, causal=args.causal)
-                    diff = pred - vn
-                    huber = (diff.abs().clamp(max=1.0).pow(2) * 0.5 + (diff.abs() - 0.5).clamp(min=0)).mean(dim=-1)
-                    cos_sim = (pred * vn).sum(dim=-1) / (pred.norm(dim=-1) * vn.norm(dim=-1) + 1e-8)
-                    loss = (layer_w * (huber + 0.5 * (1 - cos_sim))).sum(dim=-1).mean()
-                elif args.cos_lambda > 0:
-                    pred = tt(hb, causal=args.causal)
-                    mse = (pred - vn).pow(2).mean(dim=-1)
-                    cos = (pred * vn).sum(dim=-1) / (pred.norm(dim=-1) * vn.norm(dim=-1) + 1e-8)
-                    loss = (layer_w * (mse + args.cos_lambda * (1 - cos))).sum(dim=-1).mean()
-                else:
-                    loss = (layer_w * (tt(hb, causal=args.causal) - vn).pow(2).mean(dim=-1)).sum(dim=-1).mean()
+                loss = (layer_w * (tt(hb) - vn).pow(2).mean(dim=-1)).sum(dim=-1).mean()
                 opt.zero_grad(); loss.backward()
                 torch.nn.utils.clip_grad_norm_(tt.parameters(), 1.0)
                 opt.step()
@@ -237,23 +224,27 @@ def main():
 
         tt.eval()
         with torch.no_grad():
-            v_pred = tt(val_h_gpu, causal=args.causal)
-            r2, mse, cos = compute_metrics(v_pred * v_std_gpu + v_mean_gpu, val_v_gpu)
-        if r2 > best_r2:
-            best_r2 = r2
-            model_to_save = tt._orig_mod if hasattr(tt, '_orig_mod') else tt
-            torch.save(model_to_save.state_dict(), args.output)
-            json.dump({"d_model": args.d_model, "n_layers": args.n_layers,
-                       "d_ff_ratio": args.d_ff_ratio, "n_heads": 8, "best_r2": r2},
-                      open(args.output.replace(".pt", ".meta.json"), "w"))
-            print(f"  ep={epoch+1:2d} loss={epoch_loss/max(n_batches,1):.6f} val_r\u00b2={r2:.4f} cos={cos:.4f} \u2728 BEST {time.time()-t0:.0f}s", flush=True)
+            v_pred_norm = tt(val_h_gpu)
+            # Normalized R² (same as training loss scale)
+            # Denormalized R² (original velocity scale)
+            v_pred = v_pred_norm * v_std_gpu + v_mean_gpu
+            r2_awq, _, cos_awq = compute_metrics(v_pred, val_v_gpu)
+
+            # BnB validation
+            v_pred_bnb = tt(bnb_val_h_gpu)
+            v_pred_bnb_unnorm = v_pred_bnb * bnb_v_std_gpu + bnb_v_mean_gpu
+            r2_bnb, _, cos_bnb = compute_metrics(v_pred_bnb_unnorm, bnb_val_v_gpu)
+
+        if r2_awq > best_r2:
+            best_r2 = r2_awq
+            torch.save(tt.state_dict(), "best_awq_ft.pt")
+            print(f"  ep={epoch+1:2d} loss={epoch_loss/max(n_batches,1):.6f} AWQ_r\u00b2={r2_awq:.4f} BnB_r\u00b2={r2_bnb:.4f} cos_awq={cos_awq:.4f} cos_bnb={cos_bnb:.4f} \u2728 BEST {time.time()-t0:.0f}s", flush=True)
         else:
-            print(f"  ep={epoch+1:2d} loss={epoch_loss/max(n_batches,1):.6f} val_r\u00b2={r2:.4f} cos={cos:.4f} {time.time()-t0:.0f}s", flush=True)
+            print(f"  ep={epoch+1:2d} loss={epoch_loss/max(n_batches,1):.6f} AWQ_r\u00b2={r2_awq:.4f} BnB_r\u00b2={r2_bnb:.4f} cos_awq={cos_awq:.4f} cos_bnb={cos_bnb:.4f} {time.time()-t0:.0f}s", flush=True)
 
     print(f"\nBest val R\u00b2: {best_r2:.4f}", flush=True)
-    results_path = args.output.replace(".pt", "_results.json")
-    json.dump({"best_val_r2": best_r2, "d_model": args.d_model, "d_ff_ratio": args.d_ff_ratio, "n_layers": args.n_layers},
-              open(results_path, "w"), indent=2)
+    json.dump({"best_val_r2": best_r2, "d_model": args.d_model, "d_ff_ratio": args.d_ff_ratio},
+              open("awq_tt_results.json", "w"), indent=2)
     print(f"Saved.", flush=True)
 
 

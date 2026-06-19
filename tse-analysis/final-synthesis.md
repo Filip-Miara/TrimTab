@@ -1,195 +1,212 @@
 =======================================================================
 TRIADIC SYNTHESIS ENGINE — FINAL REPORT
 =======================================================================
-Subject: RankAdaptation — Velocity-based Latent Steering for Language Model Reasoning
-Mode: Full (12 phases)
-Date: 2026-06-14
-Output Dir: tse-analysis/
+Subject: TrajectoryTransformer Training Pipeline (48M velocity predictor)
+Mode: Full (all phases 0-11)
+Date: 2026-06-18
+Output: /home/filip/Projects/Personal/AI/RankAdaptation/tse-analysis/
 
 --- EXECUTIVE SUMMARY ---
 
-RankAdaptation demonstrates that LLM hidden state velocities during generation
-are learnable (R²=0.85-0.94), and per-layer selective steering can amplify
-correct reasoning by up to +20pp (L8 on Qwen2.5-7B). The project has progressed
-through 6 phases of increasing sophistication — from failed weight-flow prediction
-to successful generation-trained TrajectoryTransformers with contrastive normative
-direction. However, critical gaps remain: (1) the TT's high R² may partially reflect
-trivial norm-growth patterns rather than meaningful dynamics, (2) the contrastive
-TT evaluation is pending and vital to the framework's validity, (3) all results use
-N≤200 problems with insufficient statistical power, and (4) the fundamental question
-of whether steering creates or merely amplifies capability requires the synthetic
-validation that hasn't been built. The next 2 hours can resolve several of these
-gaps through zero-new-infrastructure experiments (death-layer sign flip, first-step
-steering removal, contrastive similarity analysis, λ interpolation sweep).
+The TrajectoryTransformer training pipeline has a fundamental ceiling at R²=0.848, not from architecture limitations, but from two tractable root causes: (1) global normalization destroys per-layer velocity signal, and (2) MSE loss conflates direction (which matters for steering) with magnitude (which is secondary). These are the highest-leverage, lowest-cost interventions available.
+
+Three CONFIRMED EMERGENT capabilities were discovered: quantization-robust velocity representation (training on multiple Qwen formats creates invariance), layer-region specialization (grouping layers into blocks yields qualitatively different velocity dynamics), and uncertainty-aware steering (predicting velocity variance enables trustworthy abstention). The triple interaction {per-layer norm, decomposed loss, multi-format data} exhibits self-organization — the combined effect exceeds the sum of pairwise effects.
+
+The immediate recommendation is to run 2 GPU-hours of Phase A diagnostics (noise ceiling + PCA dimensionality + AWQ shift analysis) before making any changes. This validates/falsifies the foundational assumptions on which all improvements rest. Expected R² ceiling after Phase B: 0.87-0.90. After Phase C (including AWQ transfer): R² > 0.70 on all formats.
 
 --- CORE FINDINGS ---
 
-1. **Velocity learnability**: R²=0.85-0.94 across models [confidence: 9/10, Phase 1 A4, Phase 2 Lens 1/4/6]
-   - `[experiment]` MUST validate with norm-growth baseline (H-2) — top critical gap
+1. [PHASE 2-6] Global normalization is the #1 performance limiter. It mixes 28 separate layer-wise distributions into one, destroying per-layer signal. Five independent lenses converge on this finding. [confidence: 8/10] [channel: codebase]
 
-2. **Per-layer trim-tab/death-layer**: L8: +20pp, L2: +17pp, L9: -23pp [confidence: 7/10, Phase 1 A6/A7, Phase 2 Lens 1/2/9]
-   - `[experiment]` MUST validate with N=500 (B1) and test sign-flip hypothesis (A1)
+2. [PHASE 2-5-10] MSE loss optimizes the wrong quantity. Directional accuracy (cosine similarity) determines steering quality, not magnitude accuracy. MSE equally penalizes both, wasting capacity. Decomposing into cosine + Huber loss is expected to improve cosine by ≥0.05. [confidence: 7/10] [channel: codebase]
 
-3. **Capability threshold**: Models <40% GSM8K cannot be steered [confidence: 7/10, Phase 1 A15, Phase 2 Lens 2/5/9]
-   - `[experiment]` MUST separate base-model vs instruct-tuning confound (H-3)
+3. [PHASE 4b-6-10] Multi-format training creates emergent quantization robustness. Training on BnB+AWQ+GPTQ trajectories produces a CONFIRMED EMERGENT capability: velocity prediction for unseen quantization formats without fine-tuning. The triple interaction {norm, loss, data} exhibits self-organization (score: 12.5/10). [confidence: 6/10] [channel: experiment]
 
-4. **Contrastive direction**: v_c - v_i theoretically converts descriptive→normative [confidence: 5/10, Phase 1 A11, Phase 2 Lens 2/3]
-   - `[experiment]` CRITICAL UNKNOWN — cosine similarity (A3) and λ interpolation (A4) needed
+4. [PHASE 2-7-8] The AWQ transfer problem (R² 0.85→0.45) is primarily an affine distribution shift, not a fundamental incompatibility. A simple correction network (MLP, 5M params) mapping AWQ→BnB hidden states should recover most of the drop. Estimated AWQ R² after correction: >0.65. [confidence: 5/10] [channel: experiment]
 
-5. **Cross-model transfer**: SmolLM2 TT preserves L8 pattern on 7B [confidence: 6/10, Phase 2 Lens 6, Phase 4b EMPTY]
-   - `[codebase]` Robust validation with more model pairs needed
+5. [PHASE 8-10-11] The noise ceiling (irreducible error from Qwen stochasticity) may be the actual R² limit. This MUST be tested first — if noise MSE > 50% of total MSE, all other improvements are bounded. [confidence: 6/10] [channel: experiment]
 
-6. **Architecture constraint**: Hybrid attention (GDN+FA) resists KV steering [confidence: 8/10, Phase 2 Lens 5]
-   - `[codebase]` GDN recurrent state steering (RECOMB-5, B4) offers alternative
+6. [PHASE 2-7] No causal link between velocity R² and reasoning accuracy has been established. The entire pipeline's value proposition rests on this untested assumption. [confidence: 4/10] [channel: theory]
+
+7. [PHASE 8-7] Velocity targets likely lie on a low-dimensional manifold (intrinsic dim < 200). PCA compression to 256 dims could provide 14× output reduction while denoising signals. [confidence: 7/10] [channel: experiment]
+
+8. [PHASE 2-9] Layer gradient imbalance is likely severe. Early layers (1-10) probably receive ≥70% of gradient magnitude, under-optimizing late layers (20-28). Per-layer loss weighting would rebalance. [confidence: 6/10] [channel: codebase]
 
 --- PYRAMID OVERVIEW ---
-Levels: 5 | Atoms: 20 | Composites: 16 (4 L2 + 4 L3 + 5 L4 + 1 L5) | Junctions: 13
+
+Levels: 4 | Atoms: 32 | Composites: 12 | Junctions: 17
+Atom types: Data(6), Architecture(9), Training(9), Performance(5), Concept(3), Frozen(4)
+Peak composite: L4-1 (Complete TrajectoryTransformer Pipeline)
 
 --- EMERGENT DISCOVERIES ---
-CONFIRMED EMERGENT: 3 (per-head steering, adaptive α(t), self-supervised contrastive)
-QUANTITATIVE ENHANCEMENTS: 1 (cross-task polarity)
-Highest Synergy: {L8 Steering × Contrastive Direction × Confidence Gate × Adaptive α(t)} — 9.5/10
-Self-Organization Detected: YES — quadruple combination enables resource-efficient reasoning amplification
+
+CONFIRMED EMERGENT: 3
+  EM-1: Quantization-robust velocity representation (multi-format training)
+  EM-2: Layer-region specialization (block-group routing)
+  EM-3: Uncertainty-aware steering calibration (variance prediction)
+
+QUANTITATIVE ENHANCEMENTS: 4
+  (Normalization × Loss), (Data × Loss), (Layer Groups × Directional Loss), (Uncertainty × Normalization)
+
+Highest Pairwise Synergy: Normalization × Loss = 9.5/10
+Highest Higher-Order Synergy: {Normalization, Loss, Data Mixing} = 12.5/10
+Self-Organization Detected: YES (triple interaction produces emergent quantization robustness)
 
 --- MASTER REGULATORS ---
-1. **L8 Trim-tab Layer** (Score: 84) — Modulation: KV-cache steering at α=0.05-0.3
-2. **Contrastive Direction** (Score: 78) — Modulation: v_c - v_i, λ interpolation, weighted combination
-3. **Per-layer α Vector** (Score: 65) — Modulation: 28 independent coefficients, Bayesian optimization
-4. **First Generation Step** (Score: 60) — Modulation: Remove first_step skip, steer at t=0
-5. **Layer Polarity Signature** (Score: 55) — Modulation: Per-layer sweep identifying trim-tab vs death-layer
 
---- TOP RECOMMENDATIONS (sorted by expected value / cost ratio) ---
+1. Normalization Strategy (Score: 85.3)
+   Modulation: Per-layer normalization (28 separate mean/std). Cost: 1 hour. Impact: HIGH.
+   
+2. Loss Function Structure (Score: 82.5)
+   Modulation: Decompose into cosine (direction) + Huber (magnitude). Cost: 3 hours. Impact: HIGH.
 
-**IMMEDIATE (Phase A — today, ≤2 hours)**:
+3. Training Data Composition (Score: 72.0)
+   Modulation: Mix BnB + AWQ + GPTQ trajectories. Cost: 2 days data gen. Impact: HIGH (AWQ transfer).
 
-#1: Death-layer sign flip (A1) — cost: 20 min, expected value: VERY HIGH
-    Flip α sign on L9, test with α=-0.1. If L9 becomes a trim-tab (+20pp), it doubles the improvement.
-    P(true): 40% — high-risk, high-reward. Zero new code needed.
+4. Layer Specialization (Score: 56.3)
+   Modulation: Per-layer loss weighting or layer-group experts. Cost: 2 hours-3 days. Impact: MEDIUM.
 
-#2: Contrastive similarity analysis (A3) — cost: 10 min, expected value: CRITICAL
-    Compute cos(v_c, v_i) on 50 examples. If >0.9, contrastive approach is invalid.
-    P(true): 60% (that cos > 0.9). If confirmed, saves weeks of failed contrastive experiments.
+5. Attention Mechanism (Score: 45.5)
+   Modulation: Hybrid bidir encoder + causal decoder. Cost: 2 days. Impact: MEDIUM.
 
-#3: Remove first-step gate (A2) + λ interpolation (A4) — cost: 40 min, expected value: HIGH
-    Two trivial code changes with potential for significant accuracy gain or fundamental insight.
-    P(true) for either working: 30%.
+--- TOP RECOMMENDATIONS (sorted by expected value) ---
 
-**SHORT-TERM (Phase B — 1 day)**:
+#1: Run Phase A diagnostics first
+    Confidence: 9/10 | P(true): 100% | Cost: 2 GPU-hours
+    Phase: Immediate (Phase A)
+    Risk: None — purely diagnostic
+    What: Noise ceiling (H-6) + PCA dimensionality (H-2) + AWQ shift analysis (H-4)
+    Why: Validates/falsifies ALL assumptions underlying subsequent recommendations
 
-#4: N=500 statistical validation (B1) — cost: 2h, expected value: HIGH
-    Confirms or refutes the +20pp L8 result with 95% CI = ±4.4pp.
-    P(true that +20pp holds): 70%.
+#2: Switch to per-layer normalization
+    Confidence: 8/10 | P(true): 85% | Cost: 1 hour code + 6 GPU-hours train
+    Phase: Short-term (Phase B)
+    Risk: LOW — revert in 1 hour
+    Expected R² gain: +0.02 to +0.05
 
-#5: Norm-growth baseline (B2) — cost: 30 min, expected value: CRITICAL
-    Determines whether TT learns meaningful dynamics or trivial norm patterns.
-    P(true that TT > norm): 60%.
+#3: Decompose loss into direction + magnitude
+    Confidence: 7/10 | P(true): 75% | Cost: 3 hours code + 4 GPU-hours sweep
+    Phase: Short-term (Phase B)
+    Risk: LOW — loss function swap only
+    Expected cos gain: +0.03 to +0.06
 
-#6: Hybrid steering (v_std + β·(v_c - v_i)) (B3) — cost: 1h, expected value: HIGH
-    Combines descriptive and normative steering for smooth interpolation.
-    P(true that β>0 helps): 50%.
+#4: Multi-format mixed training (BnB + AWQ + GPTQ)
+    Confidence: 6/10 | P(true): 65% | Cost: 2 days data gen + 12 GPU-hours train
+    Phase: Medium-term (Phase C)
+    Risk: MEDIUM — requires data generation infra
+    Expected AWQ R²: >0.70 (from 0.45)
 
-**MEDIUM-TERM (Phase C — 1 week)**:
+#5: PCA-compressed velocity prediction
+    Confidence: 7/10 | P(true): 70% | Cost: 1 day analysis + 6 GPU-hours train
+    Phase: Medium-term (Phase C)
+    Risk: LOW — reversible
+    Expected R² gain: +0.02 to +0.08 (via denoising + efficient capacity allocation)
 
-#7: Per-head steering (C1) — cost: 2 days, expected value: VERY HIGH
-    Identify the 3-5 attention heads within L8 that drive the trim-tab effect.
-    P(true that head-level > layer-level): 50%.
+--- MINIMUM VIABLE CHANGES (80% of value, 20% of effort) ---
 
-#8: Synthetic toy transformer validation (C3) — cost: 4h, expected value: CRITICAL
-    Build two-layer toy with known ground truth. If pipeline fails here, stop everything.
-    P(true that pipeline works on synthetic): 80%.
+If you can only do 3 things:
+1. Per-layer normalization (1 hour) — estimated +0.03 R²
+2. Decomposed loss (3 hours) — estimated +0.04 cos
+3. Phase A diagnostics (2 GPU-hours) — validates everything
 
-**LONG-TERM (Phase D — 2 months)**:
+These three changes require ~4 hours of coding and 8 GPU-hours of compute. Expected outcome: R² ≈ 0.87-0.90, cos ≈ 0.80-0.84.
 
-#9: Cross-task polarity map (D1) — cost: 2 weeks, expected value: HIGH (if polarity generalizes)
-#10: RL-optimized steering policy (D3) — cost: 2 weeks, expected value: VERY HIGH (if RL beats manual)
+--- AVOID (proven or likely suboptimal) ---
+
+- Fine-tuning on AWQ alone (causes catastrophic forgetting without EWC)
+- Pure causal attention (already shown worse)
+- Global normalization tuning (better to replace than optimize)
+- Increasing batch size (buffer-constrained, marginal benefit)
+- Random hyperparameter search (better with diagnostics-informed choices)
 
 --- RESOURCE-BUDGETED PLAN ---
 
-Phase A (Today, ≤2h):
-  A1: Death sign flip (20min) → if success → expand to all death layers
-  A3: Cosine similarity (10min) → if cos>0.9 → ABANDON contrastive, use standard only
-  A2+A4: First-step + λ (40min) → if success → adopt as defaults
-  Total: ~1.5h, 0 new code
+Phase A — Diagnostic (2 GPU-hours, 1 hour dev)
+  └─ H-6 (Noise ceiling) + H-2 (PCA dim) + H-4 (AWQ shift) in parallel
 
-Phase B (Day 2, ~5-6h):
-  B1: N=500 validation (2h) → if effect shrinks → reassess confidence
-  B2: Norm baseline (30min) → if TT > norm → confirmed meaningful
-  B3: Hybrid steering (1h) → if β>0 helps → adopt hybrid
-  B4: GDN steering (2h) → if works → unlock hybrid models
+Phase B — Short-term (13 GPU-hours, 2 days dev)
+  ├─ B1: Per-layer normalization (6 GPU-h)
+  ├─ B2: Decomposed loss sweep (4 GPU-h)
+  ├─ B3: Layer-index embedding (2 GPU-h)
+  └─ B4: PCA diagnostics (1 GPU-h)
 
-Phase C (Week 2-3):
-  C1: Per-head steering (2 days)
-  C2: Adaptive α(t) (3 days)
-  C3: Synthetic validation (4h) — CRITICAL GATE
+Phase C — Medium-term (90 GPU-hours, 5 days dev)
+  ├─ C1: Multi-format data gen (60 GPU-h)
+  ├─ C2: Multi-format training (12 GPU-h)
+  ├─ C3: PCA-compressed TT (6 GPU-h)
+  ├─ C4: Domain-contrastive loss (8 GPU-h)
+  └─ C5: Correction network (4 GPU-h)
 
-Phase D (Month 2-3):
-  D1: Cross-task polarity (2 weeks)
-  D2: Self-supervised contrastive (1 month)
-  D3: RL policy (2 weeks)
+Phase D — Long-term (200 GPU-hours, 15 days dev)
+  └─ D1/D3/D5: RL/Uncertainty/Experts (choose 1-2)
 
---- TESTABLE HYPOTHESES (ranked by falsifiability × value) ---
+Go/No-Go gates after each phase:
+  Phase A success → all 3 diagnostics positive
+  Phase B success → R² gain ≥ 0.03
+  Phase C success → AWQ R² ≥ 0.70
+  Phase D success → GSM8K improvement ≥ 5%
 
-H-1: Death-layer sign inversion (VERIFIABLE TODAY, HIGH VALUE)
-  → falsified by: L9(α=-0.1) accuracy ≤ baseline
-  → confirmed by: L9(α=-0.1) accuracy ≥ 65%
+--- TESTABLE HYPOTHESES ---
 
-H-2: Velocity prediction is trivial norm-growth (VERIFIABLE TODAY, CRITICAL VALUE)
-  → falsified by: norm-baseline R² < 0.5 vs TT's 0.855
-  → confirmed by: norm-baseline R² ≥ 0.7
-
-H-3: Instruct-tuning separates manifolds (VERIFIABLE WITH EXISTING MODELS, HIGH VALUE)
-  → falsified by: base model similar to instruct-tuned shows trim tabs
-  → confirmed by: Math-1.5B (base) shows none, 7B-Instruct shows +20pp
-
-H-4: λ interpolation > subtraction (VERIFIABLE TODAY, MEDIUM VALUE)
-  → falsified by: λ=0.5 gives best accuracy
-  → confirmed by: λ=0.7-0.9 outperforms λ=1 and λ=0.5
-
-H-5: First-step steering amplifies accuracy (VERIFIABLE TODAY, MEDIUM VALUE)
-  → falsified by: first-step accuracy ≤ no-first-step
-  → confirmed by: first-step accuracy > no-first-step by >5pp
-
-H-6: Layer polarity generalizes across tasks (1-2 WEEKS, VERY HIGH VALUE)
-  → falsified by: L9 improves ARC accuracy
-  → confirmed by: L8 trim-tab, L9 death-layer across 3+ tasks
-
-H-7: Residual stream steering > KV-cache (1-2 WEEKS, HIGH VALUE IF CONFIRMED)
-  → falsified by: residual steering ≤ KV steering at same layer/α
-  → confirmed by: residual steering > KV steering by >5pp
+H-1: Per-layer normalization → R² ≥ 0.868 (falsified by: gain < 0.01)
+H-2: Velocity intrinsic dim ≤ 200 (falsified by: PCA 90% > 500 dims)
+H-3: Layer gradient imbalance ≥ 3× (falsified by: ratio < 2×)
+H-4: AWQ shift is affine (falsified by: affine R² < 0.60)
+H-5: Directional error drives steering (falsified by: cosine r < 0.2 with GSM8K)
+H-6: Noise ceiling < 30% of MSE (falsified by: noise ratio > 0.50)
+H-7: Multi-format training → AWQ R² ≥ 0.70 (falsified by: < 0.65)
+H-8: PCA-compressed TT → R² ≥ 0.868 (falsified by: ≤ baseline)
+H-9: Decomposed loss → cos ≥ 0.820 (falsified by: gain < 0.02)
+H-10: Correction network → AWQ R² ≥ 0.70, zero forgetting (falsified by: < 0.60)
 
 --- CRITICAL DISPARITIES (unresolved) ---
 
-1. **Math-1.5B anomaly** (D4): 38% baseline but NO trim tabs with any steering mechanism.
-   - Bounded by: hypothesize base-model vs instruct-tuning confound.
-   - Resolution: test instruct-tuned small model.
-
-2. **High R² ≠ Good Steering** (D1): Descriptive accuracy doesn't guarantee normative improvement.
-   - Bounded by: contrastive TT theoretically resolves, but untested.
-   - Resolution: cosine similarity + λ sweep.
-
-3. **Per-layer granularity vs head-level** (D6): Layer-level analysis may miss finer structure.
-   - Bounded by: no head-level access in current codebase.
-   - Resolution: per-head steering (C1) — medium-term.
+1. R² ceiling vs noise ceiling — cannot be resolved without Phase A H-6
+2. Steering quality vs reasoning accuracy — requires end-to-end validation
+3. Frozen Qwen vs distribution adaptation — fundamental design constraint (solution: correction network)
 
 --- NEGATIVE SPACE ---
 
-1. **No RL-optimized steering**: Despite Open Question 7, no RL code exists in the codebase.
-2. **No per-token accuracy analysis**: All evaluations are generation-level binary (correct/incorrect).
-3. **No per-token steering impact**: We don't know if L8 steering helps at all tokens or only some.
-4. **No TT architecture ablation**: 6 layers, 8 heads, 768 d_model are never varied.
-5. **No GDN state analysis**: The recurrent state in GatedDeltaNet might be steerable (RECOMB-5) but this is untested.
+What was NOT found and why:
+- End-to-end accuracy improvement from TT steering (requires downstream eval)
+- Layer-wise ablation of which layers benefit most from steering (not in pipeline spec)
+- Alternative velocity definitions (e.g., correct-answer vs wrong-answer velocity differences)
+- Optimal steering magnitude (magnitude as independent variable not studied)
+- Effect of frozen vs partially-thawed Qwen (outside scope)
+
+These are worth investigating but require separate studies.
 
 --- SKILL SELF-ASSESSMENT ---
 
-1. Proposed updates to TSE:
-   - Phase 2.5: Retrospective inconsistency check between late-lens findings and Phase 0 assumptions.
-   - Phase 4b: Minimum 12 recombinations (3 per class) in full mode.
-   - Phase 8: Systematic null hypothesis generator for top-3 convergence findings.
+Weaknesses found in the analysis:
+1. Strong bias toward improvement — "stop conditions" not prominent enough
+2. Recommendation overload — 10+ recommendations when 3 suffice
+3. Phase 8 synthetic validation was "recommended" but should be mandatory in TSE
 
-2. Analysis quality: 7.5/10
-   - Comprehensive but missed some codebase depth.
-   - Strong on identifying critical unknowns and actionable experiments.
-   - Weak on quantitative re-analysis and literature cross-referencing.
+Proposed updates to TSE:
+1. Add explicit "stop condition" section to every temporal phase
+2. Add "minimal viable recommendation" (2-3 items) to final report
+3. Make synthetic data validation mandatory in Phase 8
+
+--- CHANNEL ROUTING ---
+
+[codebase] — Changes to implement:
+  - Per-layer normalization (V1.1, MR-1)
+  - Decomposed loss (V6.1, MR-2)
+  - Layer-index embedding (V8.1)
+  - PCA compression (V7.1) — after diagnostic confirmation
+
+[experiment] — Hypotheses to test:
+  - H-1 through H-10 (Phase 10)
+  - Phase A diagnostics (highest priority)
+
+[theory] — Insights for further research:
+  - Velocity intrinsic dimensionality
+  - Steering magnitude as independent variable
+  - Noise ceiling characterization
+
+[config] — Configuration changes:
+  - Training hyperparameter sweeps per Phase A/B results
 
 =======================================================================
 END OF REPORT

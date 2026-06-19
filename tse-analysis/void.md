@@ -1,77 +1,87 @@
-# VOID Record — Assumption Surfacing & Bracketing
+# Phase 0: VOID — Assumption Surfacing & Bracketing
+
+## Subject: TrajectoryTransformer Training Pipeline
+**Date**: 2026-06-18
+**Mode**: rapid (phases 0-5 + 11)
+
+---
 
 ## Explicit Assumptions
 
-1. **A1**: Hidden state velocities (v[l] = h[l+1] - h[l]) during generation are learnable and can be predicted by a transformer (R² = 0.85-0.94 across models).
-   - *Source*: PROJECT_DEBRIEF.md Finding 1, empirical R² values.
-
-2. **A2**: KV-cache modification at specific layers can steer generation toward more accurate answers.
-   - *Source*: PROJECT_DEBRIEF.md Finding 2, L8→+20pp on Qwen2.5-7B.
-
-3. **A3**: The per-layer trim-tab/death-layer pattern is robust and generalizes across datasets and model families.
-   - *Source*: PROJECT_DEBRIEF.md Finding 2, SVAMP + cross-model transfer data.
-
-4. **A4**: Steering requires the model to already have the target capability (cannot amplify nonexistent reasoning).
-   - *Source*: PROJECT_DEBRIEF.md Finding 3, small models all failed.
-
-5. **A5**: All-layer steering compounds noise from death layers and is net negative.
-   - *Source*: PROJECT_DEBRIEF.md Finding 4.
-
-6. **A6**: Standard MHA architectures (Qwen2.5, LLaMA, SmolLM2) are preferred over hybrid attention (GDN+FA) for KV-cache steering.
-   - *Source*: PROJECT_DEBRIEF.md Finding 6.
-
-7. **A7**: The TrajectoryTransformer learns a descriptive model (faithfully reproduces existing errors) rather than a normative model (predicts the correct velocity for wrong trajectories).
-   - *Source*: PROJECT_DEBRIEF.md Key Lesson 5.
-
-8. **A8**: Contrastive TT (v_correct - v_incorrect) converts descriptive to normative prediction.
-   - *Source*: PROJECT_DEBRIEF.md Key Lesson 5, Open Question 1.
-
-9. **A9**: The reading head (r=0.86 for perplexity prediction) can serve as a confidence-gating mechanism.
-   - *Source*: CROSS_SESSION_BRIEF.md, reading head correlation experiments.
-
-10. **A10**: chat_template formatting is critical for instruct-tuned models (baseline jumped from 4% to 73% on Qwen2.5-7B after applying it).
-    - *Source*: PROJECT_DEBRIEF.md Infrastructure issue 6.
+| # | Assumption | Source | Status |
+|---|-----------|--------|--------|
+| A1 | Hidden state velocity vectors (Δ between consecutive layers) are a meaningful and sufficient target for KV-cache steering | Pipeline design doc | Active |
+| A2 | Global normalization (one mean/std per feature across ALL layers and samples) is the correct preprocessing approach | Preprocessing spec | Active |
+| A3 | A 48M-parameter transformer with d_model=768, 6 layers, 8 heads can learn the velocity prediction function effectively | Architecture spec | Active |
+| A4 | Bidirectional self-attention (not causal) is appropriate for velocity prediction | Architecture spec | Active |
+| A5 | MSE loss with per-layer uniform weighting is the correct optimization objective | Training config | Active |
+| A6 | 90K trajectories from Qwen2.5-7B-Instruct on GSM8K provide sufficient coverage for generalization | Data collection | Active |
+| A7 | Float16 precision is adequate for training the TT without significant degradation | Training config | Active |
+| A8 | Memory-mapped float16 storage is necessary due to dataset size | Preprocessing spec | Active |
+| A9 | The validation set of 500 trajectories is representative | Pipeline design | Active |
+| A10 | Gradient clipping at 1.0 and AdamW with LR 3e-4 are near-optimal hyperparameters | Training config | Active |
+| A11 | Batch size 64 with VRAM double-buffering is efficient for GPU utilization | Training config | Active |
+| A12 | The frozen 7B LM's hidden states are stationary (distribution doesn't shift during TT training) | Architecture spec | Active |
+| A13 | Cosine loss variant (λ=0.5) adds value over pure MSE | Training config | Active |
+| A14 | Layer-wise uniform weighting is optimal (all 28 layers equally important) | Training config | Active |
+| A15 | TF32 matmul precision provides acceptable accuracy for training | Training config | Active |
 
 ## Implicit Assumptions
 
-1. **IA1 (relational)**: The relationship "velocity at layer l = h[l+1] - h[l]" captures the information necessary to affect token selection. We assume that perturbing hidden states along velocity directions changes attention patterns in subsequent layers *in the right way*.
+| # | Implicit Assumption | Inference Chain | Status |
+|---|-------------------|-----------------|--------|
+| A16 | The 28 layers of the 7B model encode velocity information at the same granularity | Architecture design presumes uniform treatment | Active |
+| A17 | Velocity prediction is independent of the input text distribution | Training on GSM8K → deployment on any reasoning task | Active |
+| A18 | The global normalization statistics from 90K trajectories are representative | Validity depends on coverage of the state space | Active |
+| A19 | Bidirectional context helps velocity prediction (not just future-leaking artifact) | Chosen over causal despite worse empirical match | Active |
+| A20 | The R²=0.85 ceiling is a fundamental limit of the current architecture, not a hyperparameter issue | Best results accepted as ceiling | Active |
+| A21 | AWQ quantization changes hidden states in a way that is predictable (can be learned) | Assumption underlying transfer attempt | Active |
+| A22 | Catastrophic forgetting in AWQ→BnB transfer is due to distribution shift, not capacity limitation | Implicit in fine-tuning approach | Active |
+| A23 | CUDA crashes are environmental (hardware stability), not algorithmic | Issue diagnosis | Active |
+| A24 | Data I/O being bottleneck on slow drives is acceptable (can engineer around) | Issue diagnosis | Active |
+| A25 | The velocity representation is layer-homogeneous — same d_model=3584 across all 28 layers | Architecture treats all layers identically | Active |
+| A26 | A single global mean/std captures the relevant statistics of a 28×3584×90K tensor | Preprocessing choice | Active |
+| A27 | Transformer-based prediction is the right architecture (vs. MLP, CNN, Mamba, etc.) | Architecture selection | Active |
 
-2. **IA2 (structural)**: The 28-layer decomposition of Qwen2.5-7B is the right granularity. Trim-tab effects might be finer (sub-layer, head-level) or coarser (block-level groups).
+## Counter-Assumptions (What if ¬[assumption]?)
 
-3. **IA3 (relational)**: The velocity direction that improves accuracy at one generation step also helps at other steps — i.e., the correct manifold is consistent across tokens within a reasoning chain.
-
-4. **IA4 (structural)**: Generation trajectories from GSM8K training on 500 problems are representative of the general reasoning manifold. The TT doesn't overfit to GSM8K-specific patterns.
-
-5. **IA5 (relational)**: The contrastive signal v_correct - v_incorrect is the *difference* between two manifolds, and interpolating toward the correct manifold via α·(v_c - v_i) is monotonic (more α = more correct behavior).
-
-6. **IA6 (potential)**: The steering mechanism doesn't interact destructively with the model's internal computations (e.g., attention patterns, MLP updates). We assume K/V perturbations are "absorbed" cleanly.
-
-7. **IA7 (structural)**: The 4-bit quantization used for 7B model loading preserves the steering-relevant latent structure.
-
-8. **IA8 (relational)**: The reading head's uncertainty signal (r=0.86) can be used at generation time to gate steering, despite being trained on frozen latents.
-
-## Counter-Assumptions
-
-1. **¬A1**: Hidden state velocities during generation are *not* learnable in a way useful for steering — the high R² reflects systematic noise patterns, not meaningful structure.
-
-2. **¬A2**: KV-cache steering's effect on accuracy is spurious or dataset-specific. The +20pp on L8 could be a statistical fluctuation (only 100 problems, 45% baseline).
-
-3. **¬A3**: The per-layer pattern does NOT generalize — SVAMP results (+4pp vs GSM8K's +20pp) show weakening, and Math-1.5B showed no trim tabs at all.
-
-4. **¬A4**: The capability threshold is an artifact of small sample sizes. With more problems or per-token analysis, small models might show steering signal that's lost in noise.
-
-5. **¬A5**: All-layer steering could work with an *adaptive* per-layer α vector instead of uniform α.
-
-6. **¬A6**: Standard MHA is preferred *only* because the steering mechanism was designed for it. GatedDeltaNet might be steerable via its recurrent state mechanism with the right approach.
-
-7. **¬A7**: The TT actually learns more than descriptive dynamics — the R² = 0.85-0.94 means it captures 85-94% of variance, leaving room for normative correction only at the margin.
-
-8. **¬A8**: Contrastive TT may cancel out shared structure (both correct and incorrect trajectories share many dynamics), reducing effective signal.
-
-9. **¬A9**: Reading head gating at generation time fails because the distribution shift (frozen Perceiver latents vs generation-time latents) corrupts the uncertainty signal.
-
-10. **¬IA2**: Per-layer granularity is WRONG — trim-tab effects may be at the head level within layers, and averaging across heads within a layer dilutes the signal.
+| Base | Counter-Assumption |
+|------|-------------------|
+| A1 | "What if velocity vectors are NOT the right steering signal — what if attention patterns, activation magnitudes, or subspace projections matter more?" |
+| A2 | "What if global normalization destroys per-layer and per-sample distributional information that is critical for prediction?" |
+| A3 | "What if 48M is either too few parameters (underfitting) or too many (overfitting noisy velocities)?" |
+| A4 | "What if causal attention would produce better generalization because it matches inference-time conditions?" |
+| A5 | "What if MSE is the wrong loss — what if cosine similarity, contrastive loss, or distribution matching would work better?" |
+| A6 | "What if 90K trajectories are insufficient or that GSM8K is too narrow a distribution?" |
+| A7 | "What if float16 precision is losing signal in the gradient for high-frequency velocity features?" |
+| A8 | "What if the dataset can be compressed (via PCA, quantization, or online generation) to eliminate the I/O bottleneck?" |
+| A9 | "What if the 500 validation trajectories systematically under represent failure modes?" |
+| A10 | "What if the optimal hyperparameters are far from current values (e.g., LR 3e-5, no gradient clipping)?" |
+| A11 | "What if batch size 64 is suboptimal — that smaller batches regularize better, or larger batches use hardware more efficiently?" |
+| A12 | "What if the frozen 7B model's hidden states DO shift during training (e.g., due to changing KV-cache steering affecting subsequent states)?" |
+| A13 | "What if cosine loss (λ=0.5) is actively harmful by creating gradient interference with MSE?" |
+| A14 | "What if some layers (e.g., early vs late) should be weighted differently because they encode different velocity magnitudes?" |
+| A15 | "What if TF32 is losing critical precision in the attention softmax or the prediction head?" |
+| A16 | "What if velocity structure differs dramatically between early, middle, and late layers?" |
+| A17 | "What if velocity prediction is highly input-dependent, and GSMM8K-trained TT fails on out-of-distribution texts?" |
+| A18 | "What if the normalization statistics are dominated by a few outlier trajectories?" |
+| A19 | "What if bidirectional attention is cheating — using future velocity information to predict current velocity?" |
+| A20 | "What if R²=0.85 is NOT a ceiling and substantially better results are achievable with different approaches?" |
+| A21 | "What if AWQ changes are fundamentally unpredictable (deterministic but chaotic relative to velocity space)?" |
+| A22 | "What if catastrophic forgetting is a capacity issue — the TT simply cannot represent both distributions simultaneously?" |
+| A23 | "What if CUDA crashes are algorithmic — e.g., numerical instability from the double-buffer prefetch or TF32 non-determinism?" |
+| A24 | "What if data I/O is a symptom of a deeper architectural issue (need to train online or with progressive data loading)?" |
+| A25 | "What if treating all 28 layers identically via global normalization destroys per-layer-specific velocity structure?" |
+| A26 | "What if per-layer normalization or per-sample normalization would dramatically improve prediction?" |
+| A27 | "What if a simpler architecture (e.g., 2-layer MLP per layer, or a linear probe) would match or exceed transformer performance?" |
 
 ## Bracket Statement
 
-The above assumptions are temporarily set aside for the analysis. They will be re-examined in Phase 6 (Disparity Detection) to check if assumption violations explain observed failures (Math-1.5B trim-tab absence, distribution shift effects, contrastive TT evaluation pending).
+These assumptions are set aside for the analysis. They will be re-examined in Phase 6 (Disparity Detection) and throughout the lens cascade to check whether any assumption violation is the root cause of observed failures. The counter-assumptions are particularly valuable — they serve as alternative framings that will seed divergent thinking in Phase 4.
+
+Key areas of assumption density:
+1. **Normalization strategy** (A2, A18, A26) — Multiple implicit assumptions about one design choice
+2. **Architecture adequacy** (A3, A4, A27) — Core model design choices untested against alternatives
+3. **Loss function optimality** (A5, A13, A14) — Single loss function with minimal exploration
+4. **Distributional stationarity** (A12, A17, A21) — Critical for transfer yet unvalidated
+5. **Data representativeness** (A6, A9) — Training domain may not match deployment
