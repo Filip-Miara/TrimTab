@@ -1,0 +1,112 @@
+#!/home/filip/Projects/Personal/AI/Latent_Reasoning/qwen3_trm_env/bin/python -u
+"""Compare old TT (R2=0.855, d_model=768) vs new TT (R2=0.900, d_model=1536+cossine) on BnB model."""
+import torch, sys, time, gc, warnings, os, json, re
+os.environ["PATH"] = f"{os.path.dirname(sys.executable)}:{os.environ.get('PATH', '')}"
+warnings.filterwarnings('ignore')
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+sys.path.insert(0, '.')
+from src.adapters.trajectory_transformer import TrajectoryTransformer
+
+DEVICE = "cuda"
+MODEL_PATH = "/run/media/filip/C27C20AB7C209C63/models/Qwen2.5-7B-Instruct"
+N_LAYERS = 28; N_KV_HEADS = 4; HEAD_DIM = 128; BS = 8; MAX_GEN = 200; ALPHA = 0.1
+
+def extr(t):
+    for p in [r"answer\s+is\s*(-?\d+)", r"The answer is\s*(-?\d+)", r"####\s*(-?\d+)"]:
+        m = re.search(p, t, re.IGNORECASE)
+        if m: return m.group(1)
+    nums = re.findall(r"-?\d+", t); return nums[-1] if nums else None
+
+print("Loading BnB model from SSD...", flush=True); t0 = time.time()
+quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, quantization_config=quant, device_map=DEVICE, trust_remote_code=True).eval()
+tok = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
+tok.pad_token_id = tok.eos_token_id; tok.padding_side = "left"
+print(f"Loaded in {time.time()-t0:.0f}s", flush=True)
+
+def load_tt(path, dm):
+    tt = TrajectoryTransformer(d_model=dm, n_layers=6, n_heads=8, d_ff=dm*4, n_positions=28, d_input=3584).to(DEVICE)
+    sd = torch.load(path, map_location="cpu")
+    sd = {k.replace("_orig_mod.", ""): v for k, v in sd.items()}
+    tt.load_state_dict(sd, strict=False); tt.eval()
+    return tt
+
+old_tt = load_tt("best_gen_tt_7b.pt", 768)
+new_tt = load_tt("best_tt_d1536_cos.pt", 1536)
+print("TTs loaded", flush=True)
+
+ds = load_dataset("openai/gsm8k", "main", split="test")
+problems = [r for r in ds if len(r["question"]) > 50][:30]
+
+def run_steer(tt, li):
+    correct = [0]*30; t0 = time.time()
+    for s in range(0, 30, BS):
+        e = min(s+BS, 30); B = e-s
+        pp = [f'Q: {p["question"]}\nA:' for p in problems[s:e]]
+        enc = tok(pp, return_tensors="pt", padding=True)
+        iids = enc["input_ids"].to(DEVICE); am = enc["attention_mask"].to(DEVICE)
+        past, gl, first, done = None, [[] for _ in range(B)], True, [False]*B
+        ci, cm = iids, am
+        for _ in range(MAX_GEN):
+            with torch.no_grad():
+                fwd = model(ci, past_key_values=past, use_cache=True, output_hidden_states=True, attention_mask=cm)
+            nt = fwd.logits[:, -1, :].argmax(dim=-1)
+            for b in range(B):
+                if not done[b]:
+                    tid = nt[b].item()
+                    if tid == tok.eos_token_id: done[b] = True
+                    else: gl[b].append(tid)
+            if all(done): break
+            if not first:
+                hs = fwd.hidden_states
+                hp = torch.stack([h[:, -1, :].float() for h in hs[:N_LAYERS]], dim=1)
+                with torch.no_grad(): v = tt(hp)
+                h_st = hs[li+1][:, -1, :] + ALPHA * v[:, li, :]
+                ly = model.model.layers[li]
+                k = ly.self_attn.k_proj(h_st.to(torch.bfloat16)).view(B, N_KV_HEADS, 1, HEAD_DIM)
+                vo = ly.self_attn.v_proj(h_st.to(torch.bfloat16)).view(B, N_KV_HEADS, 1, HEAD_DIM)
+                fwd.past_key_values.layers[li].keys[:, :, -1:, :] = k.to(fwd.past_key_values.layers[li].keys.dtype)
+                fwd.past_key_values.layers[li].values[:, :, -1:, :] = vo.to(fwd.past_key_values.layers[li].values.dtype)
+            past = fwd.past_key_values
+            ci = nt.unsqueeze(-1)
+            cm = torch.cat([cm, torch.ones(B, 1, device=DEVICE, dtype=cm.dtype)], dim=1)
+            first = False
+        for b in range(B):
+            g = tok.decode(gl[b], skip_special_tokens=True)
+            pa = extr(g); ca = re.search(r"####\s*(-?\d+)", problems[s+b]["answer"])
+            if pa and ca and pa == ca.group(1): correct[s+b] = 1
+        yield sum(correct)/30
+
+print("Baseline...", flush=True)
+bc = [0]*30
+for s in range(0, 30, BS):
+    e = min(s+BS, 30)
+    pp = [f'Q: {p["question"]}\nA:' for p in problems[s:e]]
+    enc = tok(pp, return_tensors="pt", padding=True)
+    out = model.generate(enc["input_ids"].to(DEVICE), attention_mask=enc["attention_mask"].to(DEVICE), max_new_tokens=MAX_GEN, do_sample=False, pad_token_id=tok.eos_token_id)
+    for b in range(e-s):
+        g = tok.decode(out[b, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+        pa = extr(g); ca = re.search(r"####\s*(-?\d+)", problems[s+b]["answer"])
+        if pa and ca and pa == ca.group(1): bc[s+b] = 1
+    print(f"  [{e}/30] acc={sum(bc)}/{e}", flush=True)
+base = sum(bc)/30; print(f"Baseline: {sum(bc)}/30 ({100*base:.1f}%)", flush=True)
+
+results = {"baseline": base, "model_path": MODEL_PATH}
+
+for tt, tt_name in [(old_tt, "Old_TT"), (new_tt, "New_TT")]:
+    for li, lname in [(2, "L2"), (8, "L8"), (10, "L10")]:
+        print(f"\n=== {tt_name} {lname} ===", flush=True)
+        for acc in run_steer(tt, li):
+            pass  # consume generator
+        d = acc - base; results[f"{tt_name}_{lname}"] = acc
+        print(f"{tt_name} {lname}: {100*acc:.1f}% Δ={100*d:+.1f}pp", flush=True)
+        json.dump(results, open("bnb_tt_comparison.json", "w"), indent=2)
+
+print(f"\n{'='*60}")
+print("OLD vs NEW TT on BnB MODEL")
+for k in sorted(results):
+    if k == "baseline" or k == "model_path": continue
+    d = results[k] - base
+    print(f"  {k:<25} {100*results[k]:5.1f}% ({100*d:+5.1f}pp)")
+print(f"Saved to bnb_tt_comparison.json")
