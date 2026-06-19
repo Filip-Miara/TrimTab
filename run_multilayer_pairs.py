@@ -1,0 +1,93 @@
+#!/home/filip/Projects/Personal/AI/Latent_Reasoning/qwen3_trm_env/bin/python -u
+"""Multi-layer KV replacement: single layers and pairs."""
+import torch,sys,time,gc,warnings,os,json,re
+os.environ["PATH"]=f"{os.path.dirname(sys.executable)}:{os.environ.get('PATH','')}"
+warnings.filterwarnings('ignore')
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM,AutoTokenizer,AwqConfig
+
+DEVICE='cuda';AWQ_PATH='/run/media/filip/C27C20AB7C209C63/Qwen2.5-7B-AWQ/qwen7b_awq'
+TOK_PATH='/run/media/filip/B522-875D/Datasets/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28'
+N_LAYERS=28;N_KV_HEADS=4;HEAD_DIM=128;BS=8;MAX_GEN=200;N_PROBS=30
+
+def extr(t):
+    for p in [r"answer\s+is\s*(-?\d+)",r"The answer is\s*(-?\d+)",r"####\s*(-?\d+)"]:
+        m=re.search(p,t,re.IGNORECASE)
+        if m:return m.group(1)
+    nums=re.findall(r"-?\d+",t);return nums[-1] if nums else None
+
+quant=AwqConfig(bits=4,group_size=128,zero_point=True,backend='gemm')
+model=AutoModelForCausalLM.from_pretrained(AWQ_PATH,quantization_config=quant,device_map='cuda',trust_remote_code=True,torch_dtype=torch.float16).eval()
+tok=AutoTokenizer.from_pretrained(TOK_PATH,trust_remote_code=True);tok.pad_token_id=tok.eos_token_id;tok.padding_side='left'
+ds=load_dataset("openai/gsm8k","main",split="test");problems=[r for r in ds if len(r["question"])>50][:N_PROBS]
+
+def replace_at(fwd,li):
+    hs=fwd.hidden_states;h_st=hs[li+1][:,-1,:]
+    ly=model.model.layers[li];B=hs[0].shape[0]
+    k_new=ly.self_attn.k_proj(h_st.to(torch.bfloat16)).view(B,N_KV_HEADS,1,HEAD_DIM)
+    v_new=ly.self_attn.v_proj(h_st.to(torch.bfloat16)).view(B,N_KV_HEADS,1,HEAD_DIM)
+    for hi in [2,3]:
+        fwd.past_key_values.layers[li].keys[:,hi:hi+1,-1:,:]=k_new[:,hi:hi+1].to(fwd.past_key_values.layers[li].keys.dtype)
+        fwd.past_key_values.layers[li].values[:,hi:hi+1,-1:,:]=v_new[:,hi:hi+1].to(fwd.past_key_values.layers[li].values.dtype)
+
+def run(label,layers):
+    correct=[0]*N_PROBS;t0=time.time()
+    for s in range(0,N_PROBS,BS):
+        e=min(s+BS,N_PROBS);B=e-s
+        pp=[f'Q: {p["question"]}\nA:' for p in problems[s:e]]
+        enc=tok(pp,return_tensors='pt',padding=True)
+        iids=enc['input_ids'].to(DEVICE);am=enc['attention_mask'].to(DEVICE)
+        past,gl,first,done=None,[[] for _ in range(B)],True,[False]*B
+        ci,cm=iids,am
+        for step in range(1,MAX_GEN+1):
+            with torch.no_grad():
+                fwd=model(ci,past_key_values=past,use_cache=True,output_hidden_states=True,attention_mask=cm)
+            nt=fwd.logits[:,-1,:].argmax(dim=-1)
+            for b in range(B):
+                if not done[b]:
+                    tid=nt[b].item()
+                    if tid==tok.eos_token_id:done[b]=True
+                    else:gl[b].append(tid)
+            if all(done):break
+            if not first and step<=30:
+                for li in layers: replace_at(fwd,li)
+            past=fwd.past_key_values;ci=nt.unsqueeze(-1)
+            cm=torch.cat([cm,torch.ones(B,1,device=DEVICE,dtype=cm.dtype)],dim=1);first=False
+        for b in range(B):
+            g=tok.decode(gl[b],skip_special_tokens=True)
+            pa=extr(g);ca=re.search(r'####\s*(-?\d+)',problems[s+b]['answer'])
+            if pa and ca and pa==ca.group(1):correct[s+b]=1
+        print(f'  [{e}/{N_PROBS}] acc={sum(correct)}/{e}',flush=True);gc.collect();torch.cuda.empty_cache()
+    return sum(correct)/N_PROBS
+
+print("Baseline...",flush=True)
+bc=[0]*N_PROBS
+for s in range(0,N_PROBS,BS):
+    e=min(s+BS,N_PROBS)
+    pp=[f'Q: {p["question"]}\nA:' for p in problems[s:e]]
+    enc=tok(pp,return_tensors='pt',padding=True)
+    out=model.generate(enc['input_ids'].to(DEVICE),attention_mask=enc['attention_mask'].to(DEVICE),max_new_tokens=MAX_GEN,do_sample=False,pad_token_id=tok.eos_token_id)
+    for b in range(e-s):
+        g=tok.decode(out[b,enc['input_ids'].shape[1]:],skip_special_tokens=True)
+        pa=extr(g);ca=re.search(r'####\s*(-?\d+)',problems[s+b]['answer'])
+        if pa and ca and pa==ca.group(1):bc[s+b]=1
+    print(f'  [{e}/{N_PROBS}] acc={sum(bc)}/{e}',flush=True)
+base=sum(bc)/N_PROBS;print(f"Baseline: {sum(bc)}/{N_PROBS} ({100*base:.1f}%)",flush=True)
+results={"baseline":base}
+
+for li in [3,8,10,20,25]:
+    acc=run(f"L{li}",[li]);results[f"L{li}"]=acc
+    print(f"L{li}: {100*acc:.1f}% Δ={100*(acc-base):+.1f}pp",flush=True)
+
+pairs=[(3,8),(3,10),(3,20),(3,25),(8,10),(8,20),(8,25),(10,20),(10,25),(20,25)]
+for l1,l2 in pairs:
+    acc=run(f"L{l1}+L{l2}",[l1,l2]);results[f"L{l1}+L{l2}"]=acc
+    print(f"L{l1}+L{l2}: {100*acc:.1f}% Δ={100*(acc-base):+.1f}pp",flush=True)
+
+print(f"\n{'='*60}")
+print('MULTI-LAYER PAIRS')
+for k in results:
+    if k=="baseline":continue
+    d=results[k]-base
+    print(f"  {k:<12} {100*results[k]:5.1f}% ({100*d:+5.1f}pp)")
+json.dump(results,open("multilayer_pairs_results.json","w"),indent=2);print("Saved")
