@@ -92,17 +92,34 @@ class TrajectoryTransformer(nn.Module):
         return velocity
 
 
-class TrajectoryTrainer:
-    def __init__(self, model: TrajectoryTransformer, lr: float = 3e-4, device: str = "cpu"):
-        self.model = model.to(device)
-        self.device = device
-        self.opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+class BottleneckTrajectoryTransformer(nn.Module):
+    """TT with progressive bottleneck: wide → narrow → bottleneck → narrow → wide.
 
-    def train_step(self, hidden_seq: torch.Tensor, velocity_target: torch.Tensor) -> float:
-        v_pred = self.model(hidden_seq.to(self.device))
-        loss = F.mse_loss(v_pred, velocity_target.to(self.device))
-        self.opt.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        self.opt.step()
-        return loss.item()
+    dims: list of widths for each processing layer, e.g. [1536, 1280, 768, 1280, 1536]
+    """
+    def __init__(self, dims: list, n_heads: int = 8, d_ff_ratio: int = 4,
+                 n_positions: int = 256, d_input: int = 3584):
+        super().__init__()
+        self.input_proj = nn.Linear(d_input, dims[0])
+        self.input_norm = nn.LayerNorm(dims[0])
+        self.pos_embed = nn.Embedding(n_positions, dims[0])
+        self.dims = dims
+
+        self.blocks = nn.ModuleList()
+        for i in range(len(dims)):
+            block = TransformerBlock(dims[i], min(n_heads, dims[i] // 64), dims[i] * d_ff_ratio)
+            self.blocks.append(block)
+            if i < len(dims) - 1 and dims[i] != dims[i + 1]:
+                self.blocks.append(nn.Linear(dims[i], dims[i + 1]))
+
+        self.output_norm = nn.LayerNorm(dims[-1])
+        self.output_proj = nn.Linear(dims[-1], d_input)
+
+    def forward(self, hidden_seq: torch.Tensor, causal: bool = False) -> torch.Tensor:
+        x = self.input_norm(self.input_proj(hidden_seq))
+        pos = self.pos_embed(torch.arange(x.shape[1], device=hidden_seq.device)).unsqueeze(0)
+        x = x + pos
+        for block in self.blocks:
+            x = block(x, causal=causal) if isinstance(block, TransformerBlock) else block(x)
+        x = self.output_norm(x)
+        return self.output_proj(x)

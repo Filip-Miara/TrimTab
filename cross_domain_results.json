@@ -1,0 +1,10 @@
+{
+  "gsm8k_baseline": 0.4,
+  "gsm8k_steered_L2": 0.4666666666666667,
+  "science_qa_baseline": 0.1,
+  "science_qa_steered_L2": 0.03333333333333333,
+  "bbh_date_baseline": 0.0,
+  "bbh_date_steered_L2": 0.0,
+  "bbh_geo_baseline": 0.0,
+  "bbh_geo_steered_L2": 0.0
+}

@@ -1,0 +1,15 @@
+{
+  "model": "Qwen2.5-7B-Instruct AWQ",
+  "quant": "AWQ 4-bit (gemm)",
+  "question": "Q: Janet has 5 ducks. She buys 3 more. How many ducks does she have?\nA:",
+  "generated_text": "Janet originally has 5 ducks and then buys 3 more. To find the total number of ducks she has, you add these two numbers together:\n\n5 + 3 = 8\n\nSo, Janet has 8 ducks in total.",
+  "first_5_tokens": [
+    "Jan",
+    "et",
+    " originally",
+    " has",
+    " "
+  ],
+  "timestamp": "2026-06-19 12:48:53",
+  "nvidia_driver": "595.71.05"
+}

@@ -1,0 +1,5 @@
+{
+  "gsm8k_baseline": 0.36666666666666664,
+  "gsm8k_steered": 0.5,
+  "gsm8k_per_token": 0.43333333333333335
+}
